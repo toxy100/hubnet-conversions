@@ -203,365 +203,475 @@ _nS('controllers.Local'); _root['controllers']['Local']['standalone'] =
 
     <!-- This can be used to insert NetLogo code into this page -->
     <script type="text/nlogo" id="nlogo-code" data-filename="model.nlogo">
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Variable and Breed declarations ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 globals
 [
-  leader            ;; a string expressing the player who has caught the most bugs (or a tie if appropriate)
-  leader-caught     ;; the number of bugs the leader has caught
-  total-caught      ;; running total of the total number of bugs caught by everyone
-  adult-age         ;; the number of ticks before bugs are full grown
+  run-number
+
+  ;; variables used to assign unique color and shape to clients
+  shape-names        ;; list that holds the names of the non-sick shapes a student's turtle can have
+  colors             ;; list that holds the colors used for students' turtles
+  color-names        ;; list that holds the names of the colors used for students' turtles
+  used-shape-colors  ;; list that holds the shape-color pairs that are already being used
+  max-possible-codes ;; total number of possible unique shape/color combinations
+
+  ;; quick start instructions variables
+  quick-start  ;; current quickstart instruction displayed in the quickstart monitor
+  qs-item      ;; index of the current quickstart instruction
+  qs-items     ;; list of quickstart instructions
+
+  num-infected-last-plotted ;; used in plotting only
+                            ;; number of turtles that had infected? = true the last time we plotted.
 ]
 
-;; each client controls one player turtle
-;; players are always hidden in the view
-breed [players player]
-
-players-own
+turtles-own
 [
-  user-name    ;; the unique name users enter on their clients
-  caught       ;; the number of bugs this user as caught
-  attempts     ;; times the user has clicked in the view trying to catch a bug
-  percent      ;; percent of catches relative to the leader
+  infected?    ;; if a turtle is sick, infected? is true, otherwise, it is false
+  base-shape   ;; original shape of a turtle
+  step-size    ;; the amount that a turtle will go forward in the current direction
 ]
 
-breed [bugs bug]
+breed [ androids android ]  ;; created by the CREATE ANDROIDS button; not controlled by anyone, but can become sick and spread sickness
+breed [ students student ]  ;; created and controlled by the clients
 
-;; gene-frequencies determine the color
-;; of each bug and mutate as bugs reproduce
-bugs-own
+students-own
 [
-  red-gene    ;; gene for strength of expressing red pigment (0-255)
-  blue-gene   ;; gene for strength of expressing blue pigment (0-255)
-  green-gene  ;; gene for strength of expressing green pigment (0-255)
+  user-id  ;; unique id, input by the client when they log in, to identify each student turtle
 ]
 
-;;;;;;;;;;;;;;;;;;;
-;; Setup Procedures
-;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;
+;; Setup Procedures ;;
+;;;;;;;;;;;;;;;;;;;;;;
 
 to startup
-; hubnet-reset
-  setup-clear
-end
-
-;; this kills off all the turtles (including the players)
-;; so we don't necessarily want to do this each time we setup
-to setup-clear
-  clear-all
-  set-default-shape bugs "moth"
-  set adult-age 50
-  setup
-end
-
-;; setup the model for another round of bug catching
-;; with the same group of users logged in
-to setup
-  clear-patches
-  clear-all-plots
+ ; hubnet-reset
+  setup-vars
+  setup-quick-start
   reset-ticks
-  ask bugs [ die ]
-
-  set total-caught 0
-  set leader ""
-  set leader-caught 0
-
-  change-environment
-  make-initial-bugs
-  ;; make sure to return players to initial conditions
-  ask players [ initialize-player ]
 end
 
-to make-initial-bugs
-  create-bugs carrying-capacity
+to setup
+  ask androids [ die ]
+  cure-all
+  reset-ticks
+end
+
+;; heals all sick turtles,  clears and sets up the plot,
+;; and clears the lists sent to the calculators
+to cure-all
+  ask turtles
   [
-    set size bug-size
-    ;; assign gene frequencies from 0 to 255, where 0 represents 0% expression of the gene
-    ;; and 255 represent 100% expression of the gene for that pigment
-    set red-gene random 255
-    set blue-gene random 255
-    set green-gene random 255
-    setxy random-xcor random-ycor
-    set-phenotype-color
-    assign-genotype-labels
+    set infected? false
+    if breed = students
+    [ update-sick?-monitor ]
+    set shape base-shape
+  ]
+  set run-number run-number + 1
+  reset-ticks
+end
+
+;; initialize global variables
+to setup-vars
+  set shape-names ["box" "star" "wheel" "target" "cat" "dog"
+                   "butterfly" "leaf" "car" "airplane"
+                   "monster" "key" "cow skull" "ghost"
+                   "cactus" "moon" "heart"]
+  ;; these colors were chosen with the goal of having colors
+  ;; that are readily distinguishable from each other, and that
+  ;; have names that everyone knows (e.g. no "cyan"!), and that
+  ;; contrast sufficiently with the red infection dots and the
+  ;; gray androids
+  set colors      (list white brown green yellow
+                        (violet + 1) (sky + 1))
+  set color-names ["white" "brown" "green" "yellow"
+                   "purple" "blue"]
+  set max-possible-codes (length colors * length shape-names)
+  set used-shape-colors []
+  set run-number 1
+end
+
+;; creates turtles that wander at random
+to make-androids
+  create-androids number
+  [
+    move-to one-of patches
+    face one-of neighbors4
+    set color gray
+    set infected? false
+    set base-shape "android"
+    set shape base-shape
+    set step-size 1
   ]
 end
 
-;;;;;;;;;;;;;;;;;;;;;
-;; Runtime Procedures
-;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;
+;; Runtime Procedures ;;
+;;;;;;;;;;;;;;;;;;;;;;;;
 
 to go
-  grow-bugs
-  reproduce-bugs
+  ;; get commands and data from the clients
   listen-clients
-  every 0.01
-  [ tick ]
-  do-plots
-end
 
-to grow-bugs
-  ask bugs
+  every 0.1
   [
-    ;; show genotypes if appropriate, hide otherwise
-    assign-genotype-labels
-    ;; if the bug is smaller than bug-size then it's not full
-    ;; grown and it should get a little bigger
-    ;; so that bugs don't just appear full grown in the view
-    ;; but instead slowly come into existence. as it's easier
-    ;; to see the new bugs when they simply appear
-    ifelse size < bug-size
-    [ set size size + (bug-size / adult-age) ]
-    [ set size bug-size ]
+    ;;allow the androids to wander around the view
+    if wander? [ androids-wander ]
+
+    ask turtles with [ infected? ]
+    [ spread-disease ]
+
+    ;; keeps track of the number of times through the go procedure (if there is at least one turtle infected)
+    ;; use an ifelse here to avoid redundant displays because tick forces a display.
+    ;; we only want to keep track of time once the first turtle has been infected.
+    ifelse count turtles with [infected?] > 0
+    [ tick ]
+    [ display ]
   ]
 end
 
-;; keep a stable population of bugs as predation rates go up or down
-to reproduce-bugs
-  ;; if all the bugs are removed by predators at once
-  ;; make a new batch of random bugs
-  if count bugs = 0
-  [ make-initial-bugs ]
-
-  ;; otherwise reproduce random other bugs  until
-  ;; you've reached the carrying capacity
-  if count bugs < carrying-capacity
-  [ ask one-of bugs [ make-one-offspring ] ]
-end
-
-to make-one-offspring ;; turtle procedure
-  ;; three possible random mutations can occur, one in each frequency of gene expression
-  ;; the max-mutation-step determines the maximum amount the gene frequency can drift up
-  ;; or down in this offspring
-  let red-mutation   random (max-mutation-step + 1) - random (max-mutation-step + 1)
-  let green-mutation random (max-mutation-step + 1) - random (max-mutation-step + 1)
-  let blue-mutation  random (max-mutation-step + 1) - random (max-mutation-step + 1)
-  hatch 1
+;; controls the motion of the androids
+to androids-wander
+  every android-delay
   [
-     set size 0
-     set red-gene   limit-gene (red-gene   + red-mutation)
-     set green-gene limit-gene (green-gene + green-mutation)
-     set blue-gene  limit-gene (blue-gene  + blue-mutation)
-     set-phenotype-color
-     ;; move away from the parent slightly
-     wander
-   ]
-end
-
-;;  ask all bugs to reproduce, ignoring carrying-capacity limits
-to make-generation
-  ask bugs [ make-one-offspring ]
-end
-
-;; used to move bugs slightly away from their parent
-to wander ;; turtle procedure
-   rt random 360
-   fd random-float offspring-distance + 1
-end
-
-;; loads an image as a background among the images listed in the environment chooser
-to change-environment
-    import-drawing environment
-end
-
-;; a visualization technique to find bugs if you are convinced they are not there anymore
-;; it allows flashing without actually changing and recalculating the color attribute of the bugs
-to flash-bugs
-  repeat 3
-  [
-    ask bugs [ set color black ]
-    wait 0.1
-    display
-    ask bugs [ set color white ]
-    wait 0.1
-    display
+    ask androids
+    [
+      face one-of neighbors4
+      fd 1
+    ]
   ]
-  ask bugs [ set-phenotype-color ]
 end
 
-to assign-genotype-labels  ;; turtle procedure
-  ifelse show-genotype?
-  ;; we display the genotype without decimal digits, to make
-  ;; the data display of this information less cluttered
-  [ set label color ]
-  [ set label "" ]
+;; additional check infect called when student moves to new patch
+;; added to avoid rewarding movement
+to student-move-check-infect
+  if infected?
+  [ spread-disease ]
+
+  ask other turtles-here with [ infected? ]
+  [ ask myself [ maybe-get-sick ] ]
 end
 
-;; convert the genetic representation of gene frequency
-;; into a phenotype (i.e., a color, using the rgb primitive)
-;; we are using rgb color rather than NetLogo colors, thus, we just
-;; make a list of the red green and blue genes.
-to set-phenotype-color  ;; turtle procedure
-  set color rgb red-gene green-gene blue-gene
+;; spread disease to other turtles here
+to spread-disease
+  ask other turtles-here [ maybe-get-sick ]
 end
 
-;; imposes a threshold limit on gene-frequency.
-;; without this genes could drift into negative values
-;; or very large values
-to-report limit-gene [gene]
-  if gene < 0   [ report 0   ]
-  if gene > 255 [ report 255 ]
-  report gene
+
+;; turtle procedure -- roll the dice and maybe get sick
+to maybe-get-sick
+  if not infected? [
+    if ((random 100) + 1) <= infection-chance
+    [ get-sick ] ]
 end
 
-;;;;;;;;;;;;;;;;;;;;;;
-;; HubNet Procedures
-;;;;;;;;;;;;;;;;;;;;;;
+;; turtle procedure -- set the appropriate variables to make this turtle sick
+to get-sick
+  set infected? true
+  set-sick-shape
+  if breed = students
+  [ update-sick?-monitor ]
+end
 
+;; turtle procedure -- change the shape of turtles to its sick shape
+;; if show-sick? is true and change the shape to the base-shape if
+;; show-sick? is false
+to set-sick-shape
+  ifelse show-sick?
+  [
+    ;; we want to check if the turtles shape is already a sick shape
+    ;; to prevent flickering in the turtles
+    if shape != word base-shape " sick"
+    [ set shape word base-shape " sick" ]
+  ]
+  [
+    ;; we want to check if the turtles shape is already a base-shape
+    ;; to prevent flickering in the turtles
+    if shape != base-shape
+    [ set shape base-shape ]
+  ]
+end
+
+;; causes the initial infection in the turtle population --
+;; infects a random healthy turtle until the desired number of
+;; turtles are infected
+to infect-turtles
+  let healthy-turtles turtles with [ not infected? ]
+
+  ifelse count healthy-turtles < initial-number-sick
+  [
+    ask healthy-turtles
+    [
+      get-sick
+      set-sick-shape
+    ]
+    user-message "There are no more healthy turtles to infect.  Infection stopped."
+    stop
+  ]
+  [
+    ask n-of initial-number-sick healthy-turtles
+    [
+      get-sick
+      set-sick-shape
+    ]
+  ]
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;
+;; HubNet Procedures ;;
+;;;;;;;;;;;;;;;;;;;;;;;
+
+;; determines which client sent a command, and what the command was
 to listen-clients
-  while [hubnet-message-waiting?]
+  while [ hubnet-message-waiting? ]
   [
     hubnet-fetch-message
     ifelse hubnet-enter-message?
-    [ add-player ]
+    [ create-new-student ]
     [
       ifelse hubnet-exit-message?
-     [ remove-player ]
-     [
-        if hubnet-message-tag = "View"
-        [
-          ask players with [ user-name = hubnet-message-source ]
-            [ eat-bugs ]
-        ]
-      ]
-    ]
-  ]
-end
-
-;; when a client logs in make a new player
-;; and give it the default attributes
-to add-player
-  create-players 1
-  [
-    set user-name hubnet-message-source
-    initialize-player
-  ]
-end
-
-to initialize-player ;; player procedure
-  hide-turtle
-  set attempts 0
-  set caught 0
-  set-percent
-  send-student-info
-end
-
-;; when clients log out simply
-;; get rid of the player turtle
-to remove-player
-  ask players with [ user-name = hubnet-message-source ]
-    [ die ]
-end
-
-to eat-bugs
-  ;; extract the coords from the hubnet message
-  let clicked-xcor  (item 0 hubnet-message)
-  let clicked-ycor  (item 1 hubnet-message)
-
-  ask players with [ user-name = hubnet-message-source ]
-  [
-    set xcor clicked-xcor      ;; go to the location of the click
-    set ycor clicked-ycor
-    set attempts attempts + 1  ;; each mouse click is recorded as an attempt
-                               ;; for that player
-
-    ;;  if the players clicks close enough to a bug's location, they catch it
-    ;;  the in-radius (bug-size / 2) calculation helps make sure the user catches the bug
-    ;;  if they click within one shape radius (approximately since the shape of the bug isn't
-    ;;  a perfect circle, even if the size of the bug is other than 1)
-    let candidates bugs in-radius (bug-size / 2)
-    ifelse any? candidates
-    [
-      let doomed-bug one-of candidates
-      set caught caught + 1
-      set total-caught total-caught + 1
-      ask doomed-bug
-        [ die ]
-
-      ;; if a bug is caught update the leader
-      ;; as it may have changed
-      update-leader-stats
-      ;; all the players have monitors
-      ;; displaying information about the leader
-      ;; so we need to make sure that gets updated
-      ;; when the leader changed
-      ask players
+      [ remove-student ]
       [
-        set-percent
-        send-student-info
+        ask students with [ user-id = hubnet-message-source ]
+          [ execute-command hubnet-message-tag ]
       ]
     ]
-    ;; even if we didn't catch a bug we need to update the attempts monitor
-    [ send-student-info ]
   ]
+
+  ask students
+    [ update-sick?-monitor ]
 end
 
-;; calculate the percentage that this player caught to the leader
-to set-percent ;; player procedure
-  ;; make sure we don't get a divide by 0 error
-  ifelse leader-caught > 0
-  [ set percent (caught / leader-caught) * 100]
-  [ set percent 0 ]
-end
-
-;; update the monitors on the client
-to send-student-info ;; player procedure
-  hubnet-send user-name  "Your name" user-name
-  hubnet-send user-name "You have caught" caught
-  hubnet-send user-name "# Attempts"  attempts
-  hubnet-send user-name "Relative %"  (precision percent 2) ;; just show 2 decimal places
-  hubnet-send user-name "Top hunter" leader
-  hubnet-send user-name "Top hunter's catches" leader-caught
-end
-
-;; do the bookkeeping to display the proper leader and score
-to update-leader-stats
-  if any? players
+;; NetLogo knows what each student turtle is supposed to be
+;; doing based on the tag sent by the node:
+;; step-size - set the turtle's step-size
+;; Up    - make the turtle move up by step-size
+;; Down  - make the turtle move down by step-size
+;; Right - make the turtle move right by step-size
+;; Left  - make the turtle move left by step-size
+;; Get a Different Turtle - change the turtle's shape and color
+to execute-command [command]
+  if command = "step-size"
   [
-    let leaders players with-max [ caught ]
-    let number-leaders count leaders
+    set step-size hubnet-message
+    stop
+  ]
+  if command = "Up"
+  [ execute-move 0 stop ]
+  if command = "Down"
+  [ execute-move 180 stop ]
+  if command = "Right"
+  [ execute-move 90 stop ]
+  if command = "Left"
+  [ execute-move 270 stop ]
+  if command = "Change Appearance"
+  [ execute-change-turtle stop ]
+end
 
-    ;; if there is more than one leader just report
-    ;; a tie otherwise report the name
-    ifelse number-leaders > 1
-    [ set leader word number-leaders "-way tie" ]
-    [ ask one-of leaders [ set leader user-name ] ]
-    set leader-caught [caught] of one-of leaders
+;; Create a turtle, set its shape, color, and position
+;; and tell the node what its turtle looks like and where it is
+to create-new-student
+  create-students 1
+  [
+    setup-student-vars
+    send-info-to-clients
+    ;; we want to make sure that the clients all have the same plot ranges,
+    ;; so when somebody logs in, set the plot ranges to themselves so that
+    ;; everybody will have the same size plots.
+    set-plot-y-range plot-y-min plot-y-max
+    set-plot-x-range plot-x-min plot-x-max
   ]
 end
 
-;;;;;;;;;;;;;;;;;;;;;
-;; Plotting Procedure
-;;;;;;;;;;;;;;;;;;;;;
+;; sets the turtle variables to appropriate initial values
+to setup-student-vars  ;; turtle procedure
+  set user-id hubnet-message-source
+  set-unique-shape-and-color
+  move-to one-of patches
+  face one-of neighbors4
+  set infected? false
+  set step-size 1
+end
 
-to do-plots
-  set-current-plot "Bugs Caught by All Hunters vs. Time"
-  plot total-caught
+;; pick a base-shape and color for the turtle
+to set-unique-shape-and-color
+  let code random max-possible-codes
+  while [member? code used-shape-colors and count students < max-possible-codes]
+  [
+    set code random max-possible-codes
+  ]
+  set used-shape-colors (lput code used-shape-colors)
+  set base-shape item (code mod length shape-names) shape-names
+  set shape base-shape
+  set color item (code / length shape-names) colors
+end
+
+;; report the string version of the turtle's color
+to-report color-string [color-value]
+  report item (position color-value colors) color-names
+end
+
+;; sends the appropriate monitor information back to the client
+to send-info-to-clients
+  hubnet-send user-id "You are a:" (word (color-string color) " " base-shape)
+  hubnet-send user-id "Located at:" (word "(" pxcor "," pycor ")")
+  update-sick?-monitor
+end
+
+to update-sick?-monitor
+  ifelse show-sick-on-clients?
+  [ hubnet-send user-id "Sick?" infected? ]
+  [ hubnet-send user-id "Sick?" "N/A" ]
+end
+
+;; Kill the turtle, set its shape, color, and position
+;; and tell the node what its turtle looks like and where it is
+to remove-student
+  ask students with [user-id = hubnet-message-source]
+  [
+    set used-shape-colors remove my-code used-shape-colors
+    die
+  ]
+end
+
+;; translates a student turtle's shape and color into a code
+to-report my-code
+  report (position base-shape shape-names) + (length shape-names) * (position color colors)
+end
+
+;; Cause the students to move forward step-size in new-heading's heading
+to execute-move [new-heading]
+  set heading new-heading
+  fd step-size
+  hubnet-send user-id "Located at:" (word "(" pxcor "," pycor ")")
+
+  ;; maybe infect or get infected by turtles on the patch student moved to
+  student-move-check-infect
+end
+
+to execute-change-turtle
+  ask students with [user-id = hubnet-message-source]
+  [
+    set used-shape-colors remove my-code used-shape-colors
+    show-turtle
+    set-unique-shape-and-color
+    hubnet-send user-id "You are a:" (word (color-string color) " " base-shape)
+    if infected?
+    [ set-sick-shape ]
+  ]
+end
+
+;;; this procedure is handy for testing out additional shapes and colors;
+;;; you can call it from the Command Center
+to show-gamut
+  clear-all
+  setup-vars
+  create-ordered-turtles max-possible-codes [
+    fd max-pxcor * 0.7
+    if who mod 3 = 0
+      [ fd max-pxcor * 0.3 ]
+    if who mod 3 = 1
+      [ fd max-pxcor * 0.15 ]
+    set heading 0
+    set-unique-shape-and-color
+  ]
+  ask patch 0 0 [
+    ask patches in-radius 2 [
+      sprout-androids 1 [
+        set shape "android"
+        set color gray
+      ]
+    ]
+  ]
+  user-message (word length shape-names
+              " shapes * "
+              length colors
+              " colors = "
+              max-possible-codes
+              " combinations")
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Quick Start Procedures ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; instructions to quickly setup the model, and clients to run this activity
+to setup-quick-start
+  set qs-item 0
+  set qs-items
+  [
+    "Teacher: Follow these directions to run the HubNet activity."
+    "Optional: Zoom In (see Tools in the Menu Bar)"
+    "Optional: Change any of the settings."
+    "If you want to add androids press the CREATE ANDROIDS button"
+    "Press the GO button."
+    "Everyone: Open up a HubNet Client on your machine and..."
+      "type your user name, select this activity and press ENTER."
+    "Teacher: Have the students move their turtles around to..."
+      "acquaint themselves with the interface."
+    "Press the INFECT button to start the simulation."
+    "Everyone: Watch the plot of the number infected."
+
+    "Teacher: To run the activity again with the same group,..."
+      "stop the model by pressing the GO button, if it is on."
+        "Change any of the settings that you would like."
+   "Press the CURE-ALL button to keep the androids, or SETUP to clear them"
+    "Teacher: Restart the simulation by pressing the GO button again."
+      "Infect some turtles and continue."
+
+    "Teacher: To start the simulation over with a new group,..."
+      "stop the model by pressing the GO button, if it is on..."
+        "have all the students log out..."
+    "or press the RESET button in the Control Center"
+        "start these instructions from the beginning"
+  ]
+  set quick-start (item qs-item qs-items)
+end
+
+;; view the next item in the quickstart monitor
+to view-next
+  set qs-item qs-item + 1
+  if qs-item >= length qs-items
+  [ set qs-item length qs-items - 1 ]
+  set quick-start (item qs-item qs-items)
+end
+
+;; view the previous item in the quickstart monitor
+to view-prev
+  set qs-item qs-item - 1
+  if qs-item < 0
+  [ set qs-item 0 ]
+  set quick-start (item qs-item qs-items)
 end
 
 
-; Copyright 2006 Uri Wilensky.
+; Copyright 1999 Uri Wilensky and Walter Stroup.
 ; See Info tab for full copyright and license.
 @#$#@#$#@
 GRAPHICS-WINDOW
-502
-10
-920
-429
+273
+94
+701
+523
 -1
 -1
-10.0
+20.0
 1
 10
 1
 1
 1
 0
+0
+0
 1
-1
-1
--20
-20
--20
-20
+-10
+10
+-10
+10
 1
 1
 1
@@ -569,26 +679,9 @@ ticks
 30.0
 
 BUTTON
-180
+131
 10
-305
-43
-NIL
-setup
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-310
-10
-425
+209
 43
 NIL
 go
@@ -602,64 +695,28 @@ NIL
 NIL
 1
 
-MONITOR
-173
-210
-423
-255
-Top hunter's catches
-leader-caught
-0
-1
-11
-
 SLIDER
-5
-10
-170
-43
-carrying-capacity
-carrying-capacity
+31
+181
+226
+214
+infection-chance
+infection-chance
 0
 100
-20.0
+100.0
 1
 1
-NIL
+%
 HORIZONTAL
-
-SLIDER
-175
-170
-425
-203
-offspring-distance
-offspring-distance
-1
-20
-5.0
-1
-1
-NIL
-HORIZONTAL
-
-CHOOSER
-5
-50
-137
-95
-environment
-environment
-"seashore.jpg" "glacier.jpg" "poppyfield.jpg"
-2
 
 BUTTON
-140
-50
-285
-95
-change background
-import-drawing environment
+131
+44
+208
+77
+infect
+infect-turtles
 NIL
 1
 T
@@ -671,55 +728,12 @@ NIL
 1
 
 BUTTON
-175
-100
-425
-133
-flash
-flash-bugs
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-SWITCH
-6
-172
-171
-205
-show-genotype?
-show-genotype?
-1
-1
--1000
-
-SLIDER
-5
-100
-170
-133
-bug-size
-bug-size
-0.1
-10
-1.5
-0.1
-1
-NIL
-HORIZONTAL
-
-BUTTON
-175
-135
-425
-168
-make a generation
-make-generation\nask bugs [assign-genotype-labels]
+9
+215
+122
+248
+create androids
+make-androids
 NIL
 1
 T
@@ -731,30 +745,119 @@ NIL
 1
 
 PLOT
-5
-260
-425
-444
-Bugs Caught by All Hunters vs. Time
-days
-bugs
+14
+367
+258
+564
+Number Sick
+time
+sick
 0.0
-100.0
+25.0
 0.0
-50.0
+6.0
 true
 false
-"" ""
+";; create a temporary plot pen for the current run\ncreate-temporary-plot-pen word \"run \" run-number\n;; cycle through a few colors so it is easy to\n;; differentiate the runs.\nset-plot-pen-color item (run-number mod 5) [blue red green orange violet]\n;; each run starts with zero infected.\nset num-infected-last-plotted 0" "let n count turtles with [infected?] \n;; only plot if someone has been infected since the last time we plotted. \n;; this smoothes out the plot a bit.\nif n > num-infected-last-plotted [\n  plotxy ticks - 1 n\n  set num-infected-last-plotted n \n]"
 PENS
-"default" 1.0 0 -16777216 true "" ""
+"not-used" 1.0 0 -16777216 false "" ""
+
+SLIDER
+123
+249
+270
+282
+android-delay
+android-delay
+0
+10
+0.0
+0.1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+123
+215
+270
+248
+number
+number
+1
+200
+5.0
+1
+1
+androids
+HORIZONTAL
+
+SWITCH
+66
+147
+192
+180
+show-sick?
+show-sick?
+0
+1
+-1000
+
+SWITCH
+10
+249
+122
+282
+wander?
+wander?
+0
+1
+-1000
+
+MONITOR
+38
+283
+128
+328
+Turtles
+count turtles
+0
+1
+11
+
+MONITOR
+129
+283
+219
+328
+Number Sick
+count turtles with [infected?]
+0
+1
+11
+
+SLIDER
+36
+79
+231
+112
+initial-number-sick
+initial-number-sick
+1
+20
+1.0
+1
+1
+NIL
+HORIZONTAL
 
 BUTTON
-290
-50
-425
-95
-clear background
-clear-drawing
+53
+10
+130
+43
+NIL
+setup
 NIL
 1
 T
@@ -765,122 +868,190 @@ NIL
 NIL
 1
 
-SLIDER
-6
-137
-171
-170
-max-mutation-step
-max-mutation-step
+SWITCH
+48
+113
+218
+146
+show-sick-on-clients?
+show-sick-on-clients?
 0
-100
-25.0
 1
-1
+-1000
+
+BUTTON
+87
+333
+180
+366
+clear-plot
+clear-all-plots\nset run-number 0
 NIL
-HORIZONTAL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+273
+60
+391
+93
+Reset Instructions
+setup-quick-start
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+609
+60
+693
+93
+NEXT >>>
+view-next
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+532
+60
+610
+93
+<<< PREV
+view-prev
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
 
 MONITOR
-5
-210
-170
-255
-Top hunter
-leader
-3
+273
+10
+693
+55
+Quick Start Instructions- More in Info Window
+quick-start
+0
 1
 11
+
+BUTTON
+53
+44
+130
+77
+NIL
+cure-all
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
 
-This is a HubNet activity of natural/artificial selection that shows how a population hunted by a predator can develop camouflaging.  For example, in a forest with green leaves, green bugs may emerge as the predominant bug color.
+This model simulates the spread of a disease through a population.  This population can consist of either students, which are turtles controlled by individual students via the HubNet Client, or turtles that are generated and controlled by NetLogo, called androids, or both androids and students.
 
-When a predator uses color and shape to identify the location of prey in an environment, then the colors and patterns in the environment provide additional selective pressure on the prey.  If some prey tend to blend into the background better, they tend to survive longer and reproduce more often.  If this continues over many generations, the distribution of colors in a population may shift to become better camouflaged in the surrounding environment.
+Turtles move around, possibly catching an infection.  Healthy turtles on the same patch as sick turtles have a INFECTION-CHANCE chance of becoming ill.  A plot shows the number of sick turtles at each time tick, and if SHOW-ILL? is on, sick turtles have a red circle attached to their shape.
 
-## HOW IT WORKS
+Initially, all turtles are healthy.  A number of turtles equal to INITIAL-NUMBER-SICK become ill when the INFECT button is depressed.
 
-Each HubNet participant or player assumes the role of a predator.  When the HubNet simulation is started after pressing GO, participants should try to click on bugs as fast as they can with the mouse.
-
-Each participant can monitor his or her relative success compared to other participants by watching the monitors in the client that show the TOP HUNTER (the person with most catches), how many that person caught (TOP HUNTER'S CATCHES) and the RELATIVE % they have caught compared to the best hunter (e.g. if the player has caught 40 and the best hunter has caught 80, then s/he has 50%).
-
-Over time a small population of bugs will become harder and harder to detect in the environment (the environment is an image file that is loaded into the model).  Camouflaging emerges from: 1) a selective pressure that results from the interaction of predator, prey, and environment, 2) the genetic representation for genes to show color, 3) and small random changes that accumulate in new offspring in the remaining population that tend to be more advantageous.
-
-Trying to become the best hunter (in number of moth catches) in the HubNet environment helps simulate the competitive pressure for limited food resources that exists between individual predators in a population.  Without this simulated competition, a participant could leisurely hunt for bugs regardless of how easy they are to catch or find.  This would not put any selective pressure on the moth population over time, and so camouflaging would not emerge in the population.
-
-Bugs have 3 genes that determine their phenotype for color.  One gene is RED-GENE, another is GREEN-GENE, and the last is BLUE-GENE.  The more frequently the gene for a pigment is coded for, the stronger that presence of color is in the overall blend of pigments that results in a single phenotype for coloration (determined by an RGB [Red-Green-Blue] calculation).
-
-With each bug you eat, an existing bug is randomly chosen to reproduce one offspring.  The offspring's gene-frequency for each of the three pigment genes may be slightly different than the parent (as determined by the MUTATION-STEP slider).
+For further documentation, see the Participatory Simulations Guide found at http://ccl.northwestern.edu/rp/ps/index.shtml.
 
 ## HOW TO USE IT
 
-To run the activity press the GO button.  To start the activity over with the same group of students stop the GO button by pressing it again, press the SETUP button, and press GO again.  To run the activity with a new group of students press the RESET button in the Control Center.
+Quickstart Instructions:
 
-Make sure you select Mirror 2D view on clients in the HubNet Control Center after you press SETUP.
+Teacher: Follow these directions to run the HubNet activity.
+Optional: Zoom In (see Tools in the Menu Bar)
+Optional: Change any of the settings. If you want to add androids press the CREATE ANDROIDS button.  Press the GO button.
+Everyone: Open up a HubNet client on your machine and type your user name, select this activity and press ENTER.
+Teacher: Have the students move their turtles around to acquaint themselves with the interface. Press the INFECT button to start the simulation.
+Everyone: Watch the plot of the number infected.
+Teacher: To run the activity again with the same group, stop the model by pressing the NetLogo GO button, if it is on. Change any of the settings that you would like.  Press the CURE-ALL button to keep the androids, or SETUP to clear them
+Teacher: Restart the simulation by pressing the NetLogo GO button again. Infect some turtles and continue.
+Teacher: To start the simulation over with a new group, stop the model by pressing the GO button, if it is on, have all the students log out or press the RESET button in the Control Center, and start these instructions from the beginning
 
-CARRYING-CAPACITY determines the size of the population on SETUP, and how many bugs are in the world at one time when GO is pressed and bugs are being eaten.
+Buttons:
 
-MAX-MUTATION-STEP determines how much the pigment genes can drift from their current values in each new generation.  For example, a MAX-MUTATION-STEP of 1 means that the gene frequency for any of the three pigments could go up 1, down 1, or stay the same in the offspring.
+SETUP - returns the model to the starting state, all student turtles are cured and androids are killed.  The plot is advanced to start a new run but it is not cleared.
+CURE-ALL - cures all turtles, androids are kept.  The plot is advanced to start a new run but it is not cleared.
+GO - runs the simulation
+CREATE ANDROIDS - adds randomly moving turtles to the simulation
+INFECT - infects INITIAL-NUMBER-SICK turtles in the simulation
+NEXT >>> - shows the next quick start instruction
+<<< PREVIOUS - shows the previous quick start instruction
+RESET INSTRUCTIONS - shows the first quick start instruction
 
-OFFSPRING-DISTANCE determines how far away (in patches) an offspring could show up from a parent.  For example, a distance of 5 means the offspring could be up to 5 patches away from the parent.
+Sliders:
 
-BUG-SIZE can be changed at any time during GO or before SETUP to modify the size of the shapes for the bugs.
+NUMBER - determines how many androids are created by the CREATE ANDROIDS button
+ANDROID-DELAY - the delay time, in seconds, for android movement - the higher the number, the slower the androids move
+INITIAL-NUMBER-SICK - the number of turtles that become infected spontaneously when the INFECT button is pressed
+INFECTION-CHANCE - sets the percentage chance that every tenth of a second a healthy turtle will become sick if it is on the same patch as an infected turtle
 
-SHOW-GENOTYPE? reveals the RGB (Red-Green-Blue) gene frequency values for each bug.  The values for Red can range from 0 to 255, and this also true for Green and Blue.  These numbers represent how fully expressed each pigment is (e.g. 102-255-51 would represent genetic information that expresses the red pigment at 40% its maximum value, the green pigment at 100%, and the blue pigment at 20%.
+Switches:
 
-ENVIRONMENT specifies the file name to load as a background image on SETUP or on CHANGE-ENVIRONMENT.  The image file must be located in the same directory as the model.
+WANDER? - when on, the androids wander randomly.  When off, they sit still
+SHOW-SICK? - when on, sick turtles add to their original shape a red circle.  When off, they can move through the populace unnoticed
+SHOW-SICK-ON-CLIENTS? - when on, the clients will be told if their turtle is sick or not.
 
-MAKE-SINGLE-GENERATION creates one offspring from the existing bugs, without being limited by the CARRYING-CAPACITY.
+Monitors:
 
-The plots "BUGS CAUGHT BY ALL HUNTERS VS. TIME" keeps track of how many bugs all the participants have caught.
+TURTLES - the number of turtles in the simulation
+NUMBER SICK - the number of turtles that are infected
 
-There are several monitors TOP HUNTER reports the person with most catches and TOP HUNTER'S CATCHES reports how many they caught.
+Plots:
+
+NUMBER SICK - shows the number of sick turtles versus time
+
+Client Information
+
+After logging in, the client interface will appear for the students, and if GO is pressed in NetLogo they will be assigned a turtle which will be described in the YOU ARE A: monitor.  And their current location will be shown in the LOCATED AT: monitor.  If the student doesn't like their assigned shape and/or color they can hit the CHANGE APPEARANCE button at any time to change to another random appearance.
+
+The SICK? monitor will show one of three values: "true" "false" or "N/A".  "N/A" will be shown if the NetLogo SHOW-ILL-ON-CLIENTS? switch is off, otherwise "true" will be shown if your turtle is infected, or "false" will be shown if your turtle is not infected.
+
+The student controls the movement of their turtle with the UP, DOWN, LEFT, and RIGHT buttons and the STEP-SIZE slider.  Clicking any of the directional buttons will cause their turtle to move in the respective direction a distance of STEP-SIZE.
+
+## THINGS TO NOTICE
+
+No matter how you change the various parameters, the same basic plot shape emerges.  After using the model once with the students, ask them how they think the plot will change if you alter a parameter.  Altering the initial percentage sick and the infection chance will have different effects on the plot.
 
 ## THINGS TO TRY
 
-Larger numbers of bugs tend to take longer to start camouflaging, but larger numbers of prey (participants) speed up the emergence camouflaging in larger populations.
-
-A common response from the user (within about 1 minute of interaction with the model) is "where did the bugs all go?"  If you keep playing with the model, the user might get better at finding the bugs, but if s/he keeps trying to catch bugs quickly, even an experienced user will find that the creatures will become very hard to find in certain environments.
-
-Each new offspring starts at zero size and grows to full size (specified by BUG-SIZE) after a while.  This growth in size is included to make brand new offspring harder to detect.  If newly created offspring were full sized right away, your eyes would more easily detect the sudden appearance of something new.
-
-Sometimes two or more "near background" colors emerge as a predominant feature in a population of bugs.  An example of this is the appearance of mostly green and red bugs in the poppy field, or dark blue/black and snow blue in the glacier background.  Other times, the saturation of the bugs appears to be selected for.  An example of this is a common outcome of "shell colored" bugs on the seashore background (e.g. light yellow, light tan, and light blue bugs similar to the shells of the seashore).
-
-Larger numbers of bugs tend to take longer to start camouflaging.
-
-In environments that have two distinct areas (such as a ground and sky), each with their own patterns and background colors, you might see two distinct populations of different camouflaging outcomes.  Often, while hunting in one area, you will be surprised to look over at the other area (after they hadn't been paying attention to that area in a while) and notice that now there are a bunch of bugs in that background that blend in this new area very well, but whose colors are distinctly different than those that blend into the original area you were hunting in.
-
-Once you reach a point where you are having trouble finding the bugs, it is useful to either press FLASH to show where they are (and how they are camouflaged), or press CLEAR-BACKGROUND to enable you to study their color distribution and location.
+Use the model with the entire class to serve as an introduction to the topic.  Then have students use the NetLogo model individually, in a computer lab, to explore the effects of the various parameters.  Discuss what they find, observe, and can conclude from this model.
 
 ## EXTENDING THE MODEL
 
-What if bugs reproduced sexually and recombined gene frequencies in their offspring?
-
-What if the shape of the bugs changed?
-
-What if a second population of insects, with slightly different body shape, was poisonous, and lost points for the user when they selected it?  Would the bugs drift to become more like this color (Mimicry), stay more like the environment, or some other outcome?
-
-## NETLOGO FEATURES
-
-IMPORT-DRAWING is the primitive that loads the image into the drawing, which in this case is merely a backdrop.
-
-IN-RADIUS is the primitive used to check if the mouse is within the graphical "footprint" of a turtle.
-
-This model uses RGB colors, that is, colors expressed as a three item list of red, green and blue.  This gives a large range of colors than with NetLogo colors.
-
-## RELATED MODELS
-
-Bug Hunt Speeds
-Bug Hunt Camouflage
-Bug Hunter Camouflage Two Regions HubNet
-Peppered Moths
-Guppy Spots
-
-## CREDITS AND REFERENCES
-
-Inspired by this BugHunt! Macintosh freeware: https://web.archive.org/web/20101213084130/http://bcrc.bio.umass.edu/BugHunt/.
-
-Thanks to Michael Novak for his work on the design of this model and the BEAGLE Evolution curriculum.
+Currently, the turtles remain sick once they're infected.  How would the shape of the plot change if turtles eventually healed?  If, after healing, they were immune to the disease, or could still spread the disease, how would the dynamics be altered?
 
 ## HOW TO CITE
 
@@ -888,7 +1059,7 @@ If you mention this model or the NetLogo software in a publication, we ask that 
 
 For the model itself:
 
-* Novak, M. and Wilensky, U. (2006).  NetLogo HubNet Bug Hunters Camouflage HubNet model.  http://ccl.northwestern.edu/netlogo/models/HubNetBugHuntersCamouflageHubNet.  Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
+* Wilensky, U. and Stroup, W. (1999).  NetLogo HubNet Disease HubNet model.  http://ccl.northwestern.edu/netlogo/models/HubNetDiseaseHubNet.  Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
 
 Please cite the NetLogo software as:
 
@@ -896,7 +1067,7 @@ Please cite the NetLogo software as:
 
 ## COPYRIGHT AND LICENSE
 
-Copyright 2006 Uri Wilensky.
+Copyright 1999 Uri Wilensky and Walter Stroup.
 
 ![CC BY-NC-SA 3.0](http://ccl.northwestern.edu/images/creativecommons/byncsa.png)
 
@@ -904,7 +1075,9 @@ This work is licensed under the Creative Commons Attribution-NonCommercial-Share
 
 Commercial licenses are also available. To inquire about commercial licenses, please contact Uri Wilensky at uri@northwestern.edu.
 
-<!-- 2006 Cite: Novak, M. -->
+This activity and associated models and materials were created as part of the projects: PARTICIPATORY SIMULATIONS: NETWORK-BASED DESIGN FOR SYSTEMS LEARNING IN CLASSROOMS and/or INTEGRATED SIMULATION AND MODELING ENVIRONMENT. The project gratefully acknowledges the support of the National Science Foundation (REPP & ROLE programs) -- grant numbers REC #9814682 and REC-0126227.
+
+<!-- 1999 Stroup -->
 @#$#@#$#@
 default
 true
@@ -916,10 +1089,32 @@ true
 0
 Polygon -7500403 true true 150 0 135 15 120 60 120 105 15 165 15 195 120 180 135 240 105 270 120 285 150 270 180 285 210 270 165 240 180 180 285 195 285 165 180 105 180 60 165 15
 
-arrow
+airplane sick
 true
 0
-Polygon -7500403 true true 150 0 0 150 105 150 105 293 195 293 195 150 300 150
+Polygon -7500403 true true 150 0 135 15 120 60 120 105 15 165 15 195 120 180 135 240 105 270 120 285 150 270 180 285 210 270 165 240 180 180 285 195 285 165 180 105 180 60 165 15
+Circle -2674135 true false 150 165 90
+
+android
+false
+0
+Polygon -7500403 true true 210 90 240 195 210 210 165 90
+Circle -7500403 true true 110 3 80
+Polygon -7500403 true true 105 88 120 193 105 240 105 298 135 300 150 210 165 300 195 298 195 240 180 193 195 88
+Rectangle -7500403 true true 127 81 172 96
+Rectangle -16777216 true false 135 33 165 60
+Polygon -7500403 true true 90 90 60 195 90 210 135 90
+
+android sick
+false
+0
+Polygon -7500403 true true 210 90 240 195 210 210 165 90
+Circle -7500403 true true 110 3 80
+Polygon -7500403 true true 105 88 120 193 105 240 105 298 135 300 150 210 165 300 195 298 195 240 180 193 195 88
+Rectangle -7500403 true true 127 81 172 96
+Rectangle -16777216 true false 135 33 165 60
+Polygon -7500403 true true 90 90 60 195 90 210 135 90
+Circle -2674135 true false 150 120 120
 
 box
 false
@@ -931,26 +1126,82 @@ Line -16777216 false 150 285 150 135
 Line -16777216 false 150 135 15 75
 Line -16777216 false 150 135 285 75
 
-bug
-true
+box sick
+false
 0
-Circle -7500403 true true 96 182 108
-Circle -7500403 true true 110 127 80
-Circle -7500403 true true 110 75 80
-Line -7500403 true 150 100 80 30
-Line -7500403 true 150 100 220 30
+Polygon -7500403 true true 150 285 270 225 270 90 150 150
+Polygon -7500403 true true 150 150 30 90 150 30 270 90
+Polygon -7500403 true true 30 90 30 225 150 285 150 150
+Line -16777216 false 150 285 150 150
+Line -16777216 false 150 150 30 90
+Line -16777216 false 150 150 270 90
+Circle -2674135 true false 170 178 108
 
 butterfly
-true
+false
 0
-Polygon -7500403 true true 150 165 209 199 225 225 225 255 195 270 165 255 150 240
-Polygon -7500403 true true 150 165 89 198 75 225 75 255 105 270 135 255 150 240
-Polygon -7500403 true true 139 148 100 105 55 90 25 90 10 105 10 135 25 180 40 195 85 194 139 163
-Polygon -7500403 true true 162 150 200 105 245 90 275 90 290 105 290 135 275 180 260 195 215 195 162 165
-Polygon -16777216 true false 150 255 135 225 120 150 135 120 150 105 165 120 180 150 165 225
-Circle -16777216 true false 135 90 30
-Line -16777216 false 150 105 195 60
-Line -16777216 false 150 105 105 60
+Rectangle -7500403 true true 92 135 207 224
+Circle -7500403 true true 158 53 134
+Circle -7500403 true true 165 180 90
+Circle -7500403 true true 45 180 90
+Circle -7500403 true true 8 53 134
+Line -16777216 false 43 189 253 189
+Rectangle -7500403 true true 135 60 165 285
+Circle -7500403 true true 165 15 30
+Circle -7500403 true true 105 15 30
+Line -7500403 true 120 30 135 60
+Line -7500403 true 165 60 180 30
+Line -16777216 false 135 60 135 285
+Line -16777216 false 165 285 165 60
+
+butterfly sick
+false
+0
+Rectangle -7500403 true true 92 135 207 224
+Circle -7500403 true true 158 53 134
+Circle -7500403 true true 165 180 90
+Circle -7500403 true true 45 180 90
+Circle -7500403 true true 8 53 134
+Line -16777216 false 43 189 253 189
+Rectangle -7500403 true true 135 60 165 285
+Circle -7500403 true true 165 15 30
+Circle -7500403 true true 105 15 30
+Line -7500403 true 120 30 135 60
+Line -7500403 true 165 60 180 30
+Line -16777216 false 135 60 135 285
+Line -16777216 false 165 285 165 60
+Circle -2674135 true false 156 171 108
+
+cactus
+false
+0
+Rectangle -7500403 true true 135 30 175 177
+Rectangle -7500403 true true 67 105 100 214
+Rectangle -7500403 true true 217 89 251 167
+Rectangle -7500403 true true 157 151 220 185
+Rectangle -7500403 true true 94 189 148 233
+Rectangle -7500403 true true 135 162 184 297
+Circle -7500403 true true 219 76 28
+Circle -7500403 true true 138 7 34
+Circle -7500403 true true 67 93 30
+Circle -7500403 true true 201 145 40
+Circle -7500403 true true 69 193 40
+
+cactus sick
+false
+0
+Rectangle -7500403 true true 135 30 175 177
+Rectangle -7500403 true true 67 105 100 214
+Rectangle -7500403 true true 217 89 251 167
+Rectangle -7500403 true true 157 151 220 185
+Rectangle -7500403 true true 94 189 148 233
+Rectangle -7500403 true true 135 162 184 297
+Circle -7500403 true true 219 76 28
+Circle -7500403 true true 138 7 34
+Circle -7500403 true true 67 93 30
+Circle -7500403 true true 201 145 40
+Circle -7500403 true true 69 193 40
+Circle -2674135 true false 156 171 108
 
 car
 false
@@ -962,114 +1213,188 @@ Polygon -16777216 true false 162 80 132 78 134 135 209 135 194 105 189 96 180 89
 Circle -7500403 true true 47 195 58
 Circle -7500403 true true 195 195 58
 
-circle
+car sick
 false
 0
-Circle -7500403 true true 0 0 300
+Polygon -7500403 true true 285 208 285 178 279 164 261 144 240 135 226 132 213 106 199 84 171 68 149 68 129 68 75 75 15 150 15 165 15 225 285 225 283 174 283 176
+Circle -16777216 true false 180 180 90
+Circle -16777216 true false 30 180 90
+Polygon -16777216 true false 195 90 135 90 135 135 210 135 195 105 165 90
+Circle -7500403 true true 47 195 58
+Circle -7500403 true true 195 195 58
+Circle -2674135 true false 171 156 108
 
-circle 2
+cat
 false
 0
-Circle -7500403 true true 0 0 300
-Circle -16777216 true false 30 30 240
+Line -7500403 true 285 240 210 240
+Line -7500403 true 195 300 165 255
+Line -7500403 true 15 240 90 240
+Line -7500403 true 285 285 195 240
+Line -7500403 true 105 300 135 255
+Line -16777216 false 150 270 150 285
+Line -16777216 false 15 75 15 120
+Polygon -7500403 true true 300 15 285 30 255 30 225 75 195 60 255 15
+Polygon -7500403 true true 285 135 210 135 180 150 180 45 285 90
+Polygon -7500403 true true 120 45 120 210 180 210 180 45
+Polygon -7500403 true true 180 195 165 300 240 285 255 225 285 195
+Polygon -7500403 true true 180 225 195 285 165 300 150 300 150 255 165 225
+Polygon -7500403 true true 195 195 195 165 225 150 255 135 285 135 285 195
+Polygon -7500403 true true 15 135 90 135 120 150 120 45 15 90
+Polygon -7500403 true true 120 195 135 300 60 285 45 225 15 195
+Polygon -7500403 true true 120 225 105 285 135 300 150 300 150 255 135 225
+Polygon -7500403 true true 105 195 105 165 75 150 45 135 15 135 15 195
+Polygon -7500403 true true 285 120 270 90 285 15 300 15
+Line -7500403 true 15 285 105 240
+Polygon -7500403 true true 15 120 30 90 15 15 0 15
+Polygon -7500403 true true 0 15 15 30 45 30 75 75 105 60 45 15
+Line -16777216 false 164 262 209 262
+Line -16777216 false 223 231 208 261
+Line -16777216 false 136 262 91 262
+Line -16777216 false 77 231 92 261
 
-cow
+cat sick
 false
 0
-Polygon -7500403 true true 200 193 197 249 179 249 177 196 166 187 140 189 93 191 78 179 72 211 49 209 48 181 37 149 25 120 25 89 45 72 103 84 179 75 198 76 252 64 272 81 293 103 285 121 255 121 242 118 224 167
-Polygon -7500403 true true 73 210 86 251 62 249 48 208
-Polygon -7500403 true true 25 114 16 195 9 204 23 213 25 200 39 123
+Line -7500403 true 285 240 210 240
+Line -7500403 true 195 300 165 255
+Line -7500403 true 15 240 90 240
+Line -7500403 true 285 285 195 240
+Line -7500403 true 105 300 135 255
+Line -16777216 false 150 270 150 285
+Line -16777216 false 15 75 15 120
+Polygon -7500403 true true 300 15 285 30 255 30 225 75 195 60 255 15
+Polygon -7500403 true true 285 135 210 135 180 150 180 45 285 90
+Polygon -7500403 true true 120 45 120 210 180 210 180 45
+Polygon -7500403 true true 180 195 165 300 240 285 255 225 285 195
+Polygon -7500403 true true 180 225 195 285 165 300 150 300 150 255 165 225
+Polygon -7500403 true true 195 195 195 165 225 150 255 135 285 135 285 195
+Polygon -7500403 true true 15 135 90 135 120 150 120 45 15 90
+Polygon -7500403 true true 120 195 135 300 60 285 45 225 15 195
+Polygon -7500403 true true 120 225 105 285 135 300 150 300 150 255 135 225
+Polygon -7500403 true true 105 195 105 165 75 150 45 135 15 135 15 195
+Polygon -7500403 true true 285 120 270 90 285 15 300 15
+Line -7500403 true 15 285 105 240
+Polygon -7500403 true true 15 120 30 90 15 15 0 15
+Polygon -7500403 true true 0 15 15 30 45 30 75 75 105 60 45 15
+Line -16777216 false 164 262 209 262
+Line -16777216 false 223 231 208 261
+Line -16777216 false 136 262 91 262
+Line -16777216 false 77 231 92 261
+Circle -2674135 true false 186 186 108
 
-cylinder
+cow skull
 false
 0
-Circle -7500403 true true 0 0 300
+Polygon -7500403 true true 150 90 75 105 60 150 75 210 105 285 195 285 225 210 240 150 225 105
+Polygon -16777216 true false 150 150 90 195 90 150
+Polygon -16777216 true false 150 150 210 195 210 150
+Polygon -16777216 true false 105 285 135 270 150 285 165 270 195 285
+Polygon -7500403 true true 240 150 263 143 278 126 287 102 287 79 280 53 273 38 261 25 246 15 227 8 241 26 253 46 258 68 257 96 246 116 229 126
+Polygon -7500403 true true 60 150 37 143 22 126 13 102 13 79 20 53 27 38 39 25 54 15 73 8 59 26 47 46 42 68 43 96 54 116 71 126
 
-dot
+cow skull sick
 false
 0
-Circle -7500403 true true 90 90 120
+Polygon -7500403 true true 150 90 75 105 60 150 75 210 105 285 195 285 225 210 240 150 225 105
+Polygon -16777216 true false 150 150 90 195 90 150
+Polygon -16777216 true false 150 150 210 195 210 150
+Polygon -16777216 true false 105 285 135 270 150 285 165 270 195 285
+Polygon -7500403 true true 240 150 263 143 278 126 287 102 287 79 280 53 273 38 261 25 246 15 227 8 241 26 253 46 258 68 257 96 246 116 229 126
+Polygon -7500403 true true 60 150 37 143 22 126 13 102 13 79 20 53 27 38 39 25 54 15 73 8 59 26 47 46 42 68 43 96 54 116 71 126
+Circle -2674135 true false 156 186 108
 
-face happy
+dog
 false
 0
-Circle -7500403 true true 8 8 285
-Circle -16777216 true false 60 75 60
-Circle -16777216 true false 180 75 60
-Polygon -16777216 true false 150 255 90 239 62 213 47 191 67 179 90 203 109 218 150 225 192 218 210 203 227 181 251 194 236 217 212 240
+Polygon -7500403 true true 300 165 300 195 270 210 183 204 180 240 165 270 165 300 120 300 0 240 45 165 75 90 75 45 105 15 135 45 165 45 180 15 225 15 255 30 225 30 210 60 225 90 225 105
+Polygon -16777216 true false 0 240 120 300 165 300 165 285 120 285 10 221
+Line -16777216 false 210 60 180 45
+Line -16777216 false 90 45 90 90
+Line -16777216 false 90 90 105 105
+Line -16777216 false 105 105 135 60
+Line -16777216 false 90 45 135 60
+Line -16777216 false 135 60 135 45
+Line -16777216 false 181 203 151 203
+Line -16777216 false 150 201 105 171
+Circle -16777216 true false 171 88 34
+Circle -16777216 false false 261 162 30
 
-face neutral
+dog sick
 false
 0
-Circle -7500403 true true 8 7 285
-Circle -16777216 true false 60 75 60
-Circle -16777216 true false 180 75 60
-Rectangle -16777216 true false 60 195 240 225
+Polygon -7500403 true true 300 165 300 195 270 210 183 204 180 240 165 270 165 300 120 300 0 240 45 165 75 90 75 45 105 15 135 45 165 45 180 15 225 15 255 30 225 30 210 60 225 90 225 105
+Polygon -16777216 true false 0 240 120 300 165 300 165 285 120 285 10 221
+Line -16777216 false 210 60 180 45
+Line -16777216 false 90 45 90 90
+Line -16777216 false 90 90 105 105
+Line -16777216 false 105 105 135 60
+Line -16777216 false 90 45 135 60
+Line -16777216 false 135 60 135 45
+Line -16777216 false 181 203 151 203
+Line -16777216 false 150 201 105 171
+Circle -16777216 true false 171 88 34
+Circle -16777216 false false 261 162 30
+Circle -2674135 true false 126 186 108
 
-face sad
+ghost
 false
 0
-Circle -7500403 true true 8 8 285
-Circle -16777216 true false 60 75 60
-Circle -16777216 true false 180 75 60
-Polygon -16777216 true false 150 168 90 184 62 210 47 232 67 244 90 220 109 205 150 198 192 205 210 220 227 242 251 229 236 206 212 183
+Polygon -7500403 true true 30 165 13 164 -2 149 0 135 -2 119 0 105 15 75 30 75 58 104 43 119 43 134 58 134 73 134 88 104 73 44 78 14 103 -1 193 -1 223 29 208 89 208 119 238 134 253 119 240 105 238 89 240 75 255 60 270 60 283 74 300 90 298 104 298 119 300 135 285 135 285 150 268 164 238 179 208 164 208 194 238 209 253 224 268 239 268 269 238 299 178 299 148 284 103 269 58 284 43 299 58 269 103 254 148 254 193 254 163 239 118 209 88 179 73 179 58 164
+Line -16777216 false 189 253 215 253
+Circle -16777216 true false 102 30 30
+Polygon -16777216 true false 165 105 135 105 120 120 105 105 135 75 165 75 195 105 180 120
+Circle -16777216 true false 160 30 30
 
-fish
+ghost sick
 false
 0
-Polygon -1 true false 44 131 21 87 15 86 0 120 15 150 0 180 13 214 20 212 45 166
-Polygon -1 true false 135 195 119 235 95 218 76 210 46 204 60 165
-Polygon -1 true false 75 45 83 77 71 103 86 114 166 78 135 60
-Polygon -7500403 true true 30 136 151 77 226 81 280 119 292 146 292 160 287 170 270 195 195 210 151 212 30 166
-Circle -16777216 true false 215 106 30
+Polygon -7500403 true true 30 165 13 164 -2 149 0 135 -2 119 0 105 15 75 30 75 58 104 43 119 43 134 58 134 73 134 88 104 73 44 78 14 103 -1 193 -1 223 29 208 89 208 119 238 134 253 119 240 105 238 89 240 75 255 60 270 60 283 74 300 90 298 104 298 119 300 135 285 135 285 150 268 164 238 179 208 164 208 194 238 209 253 224 268 239 268 269 238 299 178 299 148 284 103 269 58 284 43 299 58 269 103 254 148 254 193 254 163 239 118 209 88 179 73 179 58 164
+Line -16777216 false 189 253 215 253
+Circle -16777216 true false 102 30 30
+Polygon -16777216 true false 165 105 135 105 120 120 105 105 135 75 165 75 195 105 180 120
+Circle -16777216 true false 160 30 30
+Circle -2674135 true false 156 171 108
 
-flag
+heart
 false
 0
-Rectangle -7500403 true true 60 15 75 300
-Polygon -7500403 true true 90 150 270 90 90 30
-Line -7500403 true 75 135 90 135
-Line -7500403 true 75 45 90 45
+Circle -7500403 true true 152 19 134
+Polygon -7500403 true true 150 105 240 105 270 135 150 270
+Polygon -7500403 true true 150 105 60 105 30 135 150 270
+Line -7500403 true 150 270 150 135
+Rectangle -7500403 true true 135 90 180 135
+Circle -7500403 true true 14 19 134
 
-flower
+heart sick
 false
 0
-Polygon -10899396 true false 135 120 165 165 180 210 180 240 150 300 165 300 195 240 195 195 165 135
-Circle -7500403 true true 85 132 38
-Circle -7500403 true true 130 147 38
-Circle -7500403 true true 192 85 38
-Circle -7500403 true true 85 40 38
-Circle -7500403 true true 177 40 38
-Circle -7500403 true true 177 132 38
-Circle -7500403 true true 70 85 38
-Circle -7500403 true true 130 25 38
-Circle -7500403 true true 96 51 108
-Circle -16777216 true false 113 68 74
-Polygon -10899396 true false 189 233 219 188 249 173 279 188 234 218
-Polygon -10899396 true false 180 255 150 210 105 210 75 240 135 240
+Circle -7500403 true true 152 19 134
+Polygon -7500403 true true 150 105 240 105 270 135 150 270
+Polygon -7500403 true true 150 105 60 105 30 135 150 270
+Line -7500403 true 150 270 150 135
+Rectangle -7500403 true true 135 90 180 135
+Circle -7500403 true true 14 19 134
+Circle -2674135 true false 171 156 108
 
-hawk
-true
-0
-Polygon -7500403 true true 166 230 165 255 138 289 158 304 171 304 194 289 165 255
-Polygon -16777216 true false 166 222 165 247 143 285 155 295 176 294 189 285 165 247
-Polygon -7500403 true true 175 164 174 151 164 144 145 143 154 152 148 171 142 203 150 240 154 262 165 296 175 264 180 240 184 201
-Polygon -7500403 true true 153 175 224 159 285 179 271 183 293 199 275 200 286 213 269 213 277 223 263 220 266 227 227 232 152 229
-Circle -16777216 true false 159 145 7
-Polygon -16777216 true false 144 143 150 148 154 144
-Polygon -7500403 true true 168 171 94 158 35 177 51 182 27 197 45 198 34 211 51 211 43 221 57 218 54 225 93 230 168 227
-Polygon -7500403 true true 165 214 164 239 142 277 154 287 175 286 188 277 164 239
-Polygon -16777216 true false 171 251 164 246 143 270 155 280 176 279 189 270 161 251
-Polygon -7500403 true true 165 201 164 226 149 261 154 274 175 273 181 260 164 226
-Polygon -16777216 false false 145 142 154 152 149 168 92 158 33 176 49 182 25 196 45 197 33 211 52 211 42 221 57 218 52 225 93 231 147 228 150 240 150 252 149 267 143 271 145 272 141 276 145 281 137 289 150 300 177 300 194 289 184 279 189 275 185 274 188 271 179 262 181 258 176 253 181 240 181 230 228 233 267 227 261 219 277 222 267 213 286 213 275 200 292 198 271 182 285 178 226 159 175 170 174 151 164 144
-
-house
+key
 false
 0
-Rectangle -7500403 true true 45 120 255 285
-Rectangle -16777216 true false 120 210 180 285
-Polygon -7500403 true true 15 120 150 15 285 120
-Line -16777216 false 30 120 270 120
+Rectangle -7500403 true true 90 120 300 150
+Rectangle -7500403 true true 270 135 300 195
+Rectangle -7500403 true true 195 135 225 195
+Circle -7500403 true true 0 60 150
+Circle -16777216 true false 30 90 90
+
+key sick
+false
+0
+Rectangle -7500403 true true 90 120 300 150
+Rectangle -7500403 true true 270 135 300 195
+Rectangle -7500403 true true 195 135 225 195
+Circle -7500403 true true 0 60 150
+Circle -16777216 true false 30 90 90
+Circle -2674135 true false 156 171 108
 
 leaf
 false
@@ -1077,93 +1402,59 @@ false
 Polygon -7500403 true true 150 210 135 195 120 210 60 210 30 195 60 180 60 165 15 135 30 120 15 105 40 104 45 90 60 90 90 105 105 120 120 120 105 60 120 60 135 30 150 15 165 30 180 60 195 60 180 120 195 120 210 105 240 90 255 90 263 104 285 105 270 120 285 135 240 165 240 180 270 195 240 210 180 210 165 195
 Polygon -7500403 true true 135 195 135 240 120 255 105 255 105 285 135 285 165 240 165 195
 
-line
-true
-0
-Line -7500403 true 150 0 150 300
-
-line half
-true
-0
-Line -7500403 true 150 0 150 150
-
-moth
-true
-0
-Polygon -7500403 true true 150 165 209 199 225 225 225 255 195 270 165 255 150 240
-Polygon -7500403 true true 150 165 89 198 75 225 75 255 105 270 135 255 150 240
-Polygon -7500403 true true 139 148 100 105 55 90 25 90 10 105 10 135 25 180 40 195 85 194 139 163
-Polygon -7500403 true true 162 150 200 105 245 90 275 90 290 105 290 135 275 180 260 195 215 195 162 165
-Polygon -7500403 true true 150 255 135 225 120 150 135 120 150 105 165 120 180 150 165 225
-Circle -7500403 true true 135 90 30
-Line -7500403 true 150 105 195 60
-Line -7500403 true 150 105 105 60
-
-moth-black
-true
-0
-Polygon -16777216 true false 150 165 209 199 225 225 225 255 195 270 165 255 150 240
-Polygon -16777216 true false 150 165 89 198 75 225 75 255 105 270 135 255 150 240
-Polygon -16777216 true false 139 148 100 105 55 90 25 90 10 105 10 135 25 180 40 195 85 194 139 163
-Polygon -16777216 true false 162 150 200 105 245 90 275 90 290 105 290 135 275 180 260 195 215 195 162 165
-Polygon -16777216 true false 150 255 135 225 120 150 135 120 150 105 165 120 180 150 165 225
-Circle -16777216 true false 135 90 30
-Line -16777216 false 150 105 195 60
-Line -16777216 false 150 105 105 60
-
-moth-white
-true
-0
-Polygon -1 true false 150 165 209 199 225 225 225 255 195 270 165 255 150 240
-Polygon -1 true false 150 165 89 198 75 225 75 255 105 270 135 255 150 240
-Polygon -1 true false 139 148 100 105 55 90 25 90 10 105 10 135 25 180 40 195 85 194 139 163
-Polygon -1 true false 162 150 200 105 245 90 275 90 290 105 290 135 275 180 260 195 215 195 162 165
-Polygon -1 true false 150 255 135 225 120 150 135 120 150 105 165 120 180 150 165 225
-Circle -1 true false 135 90 30
-Line -1 false 150 105 195 60
-Line -1 false 150 105 105 60
-
-pentagon
+leaf sick
 false
 0
-Polygon -7500403 true true 150 15 15 120 60 285 240 285 285 120
+Polygon -7500403 true true 150 210 135 195 120 210 60 210 30 195 60 180 60 165 15 135 30 120 15 105 40 104 45 90 60 90 90 105 105 120 120 120 105 60 120 60 135 30 150 15 165 30 180 60 195 60 180 120 195 120 210 105 240 90 255 90 263 104 285 105 270 120 285 135 240 165 240 180 270 195 240 210 180 210 165 195
+Polygon -7500403 true true 135 195 135 240 120 255 105 255 105 285 135 285 165 240 165 195
+Circle -2674135 true false 141 171 108
 
-person
+monster
 false
 0
-Circle -7500403 true true 110 5 80
-Polygon -7500403 true true 105 90 120 195 90 285 105 300 135 300 150 225 165 300 195 300 210 285 180 195 195 90
-Rectangle -7500403 true true 127 79 172 94
-Polygon -7500403 true true 195 90 240 150 225 180 165 105
-Polygon -7500403 true true 105 90 60 150 75 180 135 105
+Polygon -7500403 true true 75 150 90 195 210 195 225 150 255 120 255 45 180 0 120 0 45 45 45 120
+Circle -16777216 true false 165 60 60
+Circle -16777216 true false 75 60 60
+Polygon -7500403 true true 225 150 285 195 285 285 255 300 255 210 180 165
+Polygon -7500403 true true 75 150 15 195 15 285 45 300 45 210 120 165
+Polygon -7500403 true true 210 210 225 285 195 285 165 165
+Polygon -7500403 true true 90 210 75 285 105 285 135 165
+Rectangle -7500403 true true 135 165 165 270
 
-plant
+monster sick
 false
 0
-Rectangle -7500403 true true 135 90 165 300
-Polygon -7500403 true true 135 255 90 210 45 195 75 255 135 285
-Polygon -7500403 true true 165 255 210 210 255 195 225 255 165 285
-Polygon -7500403 true true 135 180 90 135 45 120 75 180 135 210
-Polygon -7500403 true true 165 180 165 210 225 180 255 120 210 135
-Polygon -7500403 true true 135 105 90 60 45 45 75 105 135 135
-Polygon -7500403 true true 165 105 165 135 225 105 255 45 210 60
-Polygon -7500403 true true 135 90 120 45 150 15 180 45 165 90
+Polygon -7500403 true true 75 150 90 195 210 195 225 150 255 120 255 45 180 0 120 0 45 45 45 120
+Circle -16777216 true false 165 60 60
+Circle -16777216 true false 75 60 60
+Polygon -7500403 true true 225 150 285 195 285 285 255 300 255 210 180 165
+Polygon -7500403 true true 75 150 15 195 15 285 45 300 45 210 120 165
+Polygon -7500403 true true 210 210 225 285 195 285 165 165
+Polygon -7500403 true true 90 210 75 285 105 285 135 165
+Rectangle -7500403 true true 135 165 165 270
+Circle -2674135 true false 141 141 108
 
-square
+moon
 false
 0
-Rectangle -7500403 true true 0 0 300 300
+Polygon -7500403 true true 175 7 83 36 25 108 27 186 79 250 134 271 205 274 281 239 207 233 152 216 113 185 104 132 110 77 132 51
 
-square 2
+moon sick
 false
 0
-Rectangle -7500403 true true 30 30 270 270
-Rectangle -16777216 true false 60 60 240 240
+Polygon -7500403 true true 160 7 68 36 10 108 12 186 64 250 119 271 190 274 266 239 192 233 137 216 98 185 89 132 95 77 117 51
+Circle -2674135 true false 171 171 108
 
 star
 false
 0
 Polygon -7500403 true true 151 1 185 108 298 108 207 175 242 282 151 216 59 282 94 175 3 108 116 108
+
+star sick
+false
+0
+Polygon -7500403 true true 151 1 185 108 298 108 207 175 242 282 151 216 59 282 94 175 3 108 116 108
+Circle -2674135 true false 156 171 108
 
 target
 false
@@ -1174,51 +1465,15 @@ Circle -7500403 true true 60 60 180
 Circle -16777216 true false 90 90 120
 Circle -7500403 true true 120 120 60
 
-tree
-false
-0
-Circle -7500403 true true 118 3 94
-Rectangle -6459832 true false 120 195 180 300
-Circle -7500403 true true 65 21 108
-Circle -7500403 true true 116 41 127
-Circle -7500403 true true 45 90 120
-Circle -7500403 true true 104 74 152
-
-triangle
-false
-0
-Polygon -7500403 true true 150 30 15 255 285 255
-
-triangle 2
-false
-0
-Polygon -7500403 true true 150 30 15 255 285 255
-Polygon -16777216 true false 151 99 225 223 75 224
-
-truck
-false
-0
-Rectangle -7500403 true true 4 45 195 187
-Polygon -7500403 true true 296 193 296 150 259 134 244 104 208 104 207 194
-Rectangle -1 true false 195 60 195 105
-Polygon -16777216 true false 238 112 252 141 219 141 218 112
-Circle -16777216 true false 234 174 42
-Rectangle -7500403 true true 181 185 214 194
-Circle -16777216 true false 144 174 42
-Circle -16777216 true false 24 174 42
-Circle -7500403 false true 24 174 42
-Circle -7500403 false true 144 174 42
-Circle -7500403 false true 234 174 42
-
-turtle
+target sick
 true
 0
-Polygon -10899396 true false 215 204 240 233 246 254 228 266 215 252 193 210
-Polygon -10899396 true false 195 90 225 75 245 75 260 89 269 108 261 124 240 105 225 105 210 105
-Polygon -10899396 true false 105 90 75 75 55 75 40 89 31 108 39 124 60 105 75 105 90 105
-Polygon -10899396 true false 132 85 134 64 107 51 108 17 150 2 192 18 192 52 169 65 172 87
-Polygon -10899396 true false 85 204 60 233 54 254 72 266 85 252 107 210
-Polygon -7500403 true true 119 75 179 75 209 101 224 135 220 225 175 261 128 261 81 224 74 135 88 99
+Circle -7500403 true true 0 0 300
+Circle -16777216 true false 30 30 240
+Circle -7500403 true true 60 60 180
+Circle -16777216 true false 90 90 120
+Circle -7500403 true true 120 120 60
+Circle -2674135 true false 163 163 95
 
 wheel
 false
@@ -1233,11 +1488,19 @@ Line -7500403 true 40 84 269 221
 Line -7500403 true 40 216 269 79
 Line -7500403 true 84 40 221 269
 
-x
+wheel sick
 false
 0
-Polygon -7500403 true true 270 75 225 30 30 225 75 270
-Polygon -7500403 true true 30 75 75 30 270 225 225 270
+Circle -7500403 true true 3 3 294
+Circle -16777216 true false 30 30 240
+Line -7500403 true 150 285 150 15
+Line -7500403 true 15 150 285 150
+Circle -7500403 true true 120 120 60
+Line -7500403 true 216 40 79 269
+Line -7500403 true 40 84 269 221
+Line -7500403 true 40 216 269 79
+Line -7500403 true 84 40 221 269
+Circle -2674135 true false 156 156 108
 @#$#@#$#@
 NetLogo 6.0.4
 @#$#@#$#@
@@ -1246,10 +1509,10 @@ need-to-manually-make-preview-for-this-model
 @#$#@#$#@
 @#$#@#$#@
 VIEW
-175
+252
 10
-585
-420
+672
+430
 0
 0
 0
@@ -1262,90 +1525,125 @@ VIEW
 1
 1
 1
--20
-20
--20
-20
+-10
+10
+-10
+10
 
-MONITOR
-10
-10
-135
-59
-Your name
-NIL
-0
-1
-
-TEXTBOX
-15
-65
-143
-128
-Try to catch bugs by clicking on them in the view to the right.
-11
-0.0
-0
-
-MONITOR
-10
-120
-135
-169
-You have caught
-NIL
-3
-1
-
-MONITOR
-10
-175
-135
-224
-# Attempts
-NIL
-0
-1
-
-MONITOR
-10
-240
-135
-289
-Top hunter
-NIL
-0
-1
-
-MONITOR
-10
-290
-135
-339
-Top hunter's catches
-NIL
-3
-1
-
-MONITOR
-10
-400
+BUTTON
+91
 133
-449
-Relative %
+153
+166
+Up
+NIL
 NIL
 1
+T
+OBSERVER
+NIL
+I
+
+BUTTON
+91
+199
+153
+232
+Down
+NIL
+NIL
+1
+T
+OBSERVER
+NIL
+K
+
+BUTTON
+153
+166
+215
+199
+Right
+NIL
+NIL
+1
+T
+OBSERVER
+NIL
+L
+
+BUTTON
+29
+166
+91
+199
+Left
+NIL
+NIL
+1
+T
+OBSERVER
+NIL
+J
+
+SLIDER
+3
+95
+153
+128
+step-size
+step-size
+1.0
+5.0
+1
+1.0
+1
+NIL
+HORIZONTAL
+
+MONITOR
+156
+10
+243
+59
+Located at:
+NIL
+3
 1
 
-TEXTBOX
-15
-350
-160
-392
-Relative % = 100 * \n(your catches) / \n(top hunter's catches)
-11
-0.0
-0
+MONITOR
+3
+10
+153
+59
+You are a:
+NIL
+3
+1
+
+MONITOR
+156
+79
+243
+128
+Sick?
+NIL
+3
+1
+
+BUTTON
+3
+57
+153
+90
+Change Appearance
+NIL
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
 
 @#$#@#$#@
 default
@@ -1359,7 +1657,7 @@ true
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
 @#$#@#$#@
-1
+0
 @#$#@#$#@
 
 </script>

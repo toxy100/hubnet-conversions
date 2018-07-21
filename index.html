@@ -248,7 +248,7 @@ students-own
 ;;;;;;;;;;;;;;;;;;;;;;
 
 to startup
-  ;hubnet-reset
+;  hubnet-reset
   setup-vars
   setup-quick-start
   reset-ticks
@@ -502,9 +502,11 @@ to set-unique-shape-and-color
     set code random max-possible-codes
   ]
   set used-shape-colors (lput code used-shape-colors)
-  set base-shape item (code mod length shape-names) shape-names
+  let key (code mod length shape-names)
+  set base-shape item key shape-names
   set shape base-shape
-  set color item (code / length shape-names) colors
+  set key code / length shape-names
+  set color item floor key colors
 end
 
 ;; report the string version of the turtle's color

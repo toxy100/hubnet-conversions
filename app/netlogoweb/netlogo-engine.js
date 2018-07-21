@@ -8356,8 +8356,7 @@ function hasOwnProperty(obj, prop) {
 
   module.exports = HubnetManager = (function() {
     function HubnetManager() {
-      this.hubnetSendOverride = bind(this.hubnetSendOverride, this);
-      this.hubnetSendFollow = bind(this.hubnetSendFollow, this);
+      this.hubnetBroadcast = bind(this.hubnetBroadcast, this);
       this.hubnetSend = bind(this.hubnetSend, this);
       this.hubnetFetchMessage = bind(this.hubnetFetchMessage, this);
       this.hubnetMessageWaiting = false;
@@ -8380,9 +8379,13 @@ function hasOwnProperty(obj, prop) {
       });
     };
 
-    HubnetManager.prototype.hubnetSendFollow = function(clientName, agent, radius) {};
-
-    HubnetManager.prototype.hubnetSendOverride = function(clientName, agentOrSet, variableName) {};
+    HubnetManager.prototype.hubnetBroadcast = function(messageTag, message) {
+      socket.emit('send reporter', {
+        hubnetMessageSource: "all-users",
+        hubnetMessageTag: messageTag,
+        hubnetMessage: message
+      });
+    };
 
     HubnetManager.prototype.processCommand = function(m) {
       if (commandQueue.length === 0) {
@@ -12868,47 +12871,56 @@ function hasOwnProperty(obj, prop) {
 (function() {
   var HubnetManager,
     bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
+    
+      module.exports = HubnetManager = (function() {
+        function HubnetManager() {
+          this.hubnetBroadcast = bind(this.hubnetBroadcast, this);
+          this.hubnetSend = bind(this.hubnetSend, this);
+          this.hubnetFetchMessage = bind(this.hubnetFetchMessage, this);
+          this.hubnetMessageWaiting = false;
+          this.hubnetEnterMessage = false;
+          this.hubnetExitMessage = false;
+          this.hubnetMessage = "";
+          this.hubnetMessageSource = "";
+          this.hubnetMessageTag = "";
+        }
 
-  module.exports = HubnetManager = (function() {
-    function HubnetManager() {
-      this.hubnetSend = bind(this.hubnetSend, this);
-      this.hubnetFetchMessage = bind(this.hubnetFetchMessage, this);
-      this.hubnetMessageWaiting = false;
-      this.hubnetEnterMessage = false;
-      this.hubnetExitMessage = false;
-      this.hubnetMessage = "";
-      this.hubnetMessageSource = "";
-      this.hubnetMessageTag = "";
-    }
+        HubnetManager.prototype.hubnetFetchMessage = function() {
+          this.processCommand(commandQueue.shift());
+        };
 
-    HubnetManager.prototype.hubnetFetchMessage = function() {
-      this.processCommand(commandQueue.shift());
-    };
+        HubnetManager.prototype.hubnetSend = function(messageSource, messageTag, message) {
+          socket.emit('send reporter', {
+            hubnetMessageSource: messageSource,
+            hubnetMessageTag: messageTag,
+            hubnetMessage: message
+          });
+        };
 
-    HubnetManager.prototype.hubnetSend = function(messageSource, messageTag, message) {
-      socket.emit('send reporter', {
-        hubnetMessageSource: messageSource,
-        hubnetMessageTag: messageTag,
-        hubnetMessage: message
-      });
-    };
+        HubnetManager.prototype.hubnetBroadcast = function(messageTag, message) {
+          socket.emit('send reporter', {
+            hubnetMessageSource: "all-users",
+            hubnetMessageTag: messageTag,
+            hubnetMessage: message
+          });
+        };
 
-    HubnetManager.prototype.processCommand = function(m) {
-      if (commandQueue.length === 0) {
-        world.hubnetManager.hubnetMessageWaiting = false;
-      }
-      world.hubnetManager.hubnetEnterMessage = false;
-      world.hubnetManager.hubnetExitMessage = false;
-      world.hubnetManager.hubnetMessageSource = m.messageSource;
-      world.hubnetManager.hubnetMessageTag = m.messageTag;
-      world.hubnetManager.hubnetMessage = m.message;
-      if (m.messageTag === 'hubnet-enter-message') {
-        world.hubnetManager.hubnetEnterMessage = true;
-      }
-      if (m.messageTag === 'hubnet-exit-message') {
-        world.hubnetManager.hubnetExitMessage = true;
-      }
-    };
+        HubnetManager.prototype.processCommand = function(m) {
+          if (commandQueue.length === 0) {
+            world.hubnetManager.hubnetMessageWaiting = false;
+          }
+          world.hubnetManager.hubnetEnterMessage = false;
+          world.hubnetManager.hubnetExitMessage = false;
+          world.hubnetManager.hubnetMessageSource = m.messageSource;
+          world.hubnetManager.hubnetMessageTag = m.messageTag;
+          world.hubnetManager.hubnetMessage = m.message;
+          if (m.messageTag === 'hubnet-enter-message') {
+            world.hubnetManager.hubnetEnterMessage = true;
+          }
+          if (m.messageTag === 'hubnet-exit-message') {
+            world.hubnetManager.hubnetExitMessage = true;
+          }
+        };
 
     return HubnetManager;
 
@@ -18509,7 +18521,7 @@ function hasOwnProperty(obj, prop) {
   module.exports = {
     dumper: void 0,
     init: function(workspace) {
-      var bringToFront, centerView, createObject, createObjects, createPoint, createPoints, deleteObject, deleteObjects, deletePoint, deletePoints, evalCommand, evalReporter, exportFile, exportGgb, exportWorld, getAll, getData, getDraggable, getGgbList, getGraphOffset, getObject, getObjectType, getObjects, getOpacity, getPoint, getPoints, getPointsString, getValue, getX, getXy, getY, graphToPatch, hideGraph, hideObject, hideObjectLabel, hideToolbar, importFile, importGgb, importWorld, objectExists, patchToGraph, renameObject, sendToBack, setAll, setData, setDraggable, setGraphOffset, setOpacity, setX, setXy, setY, showGraph, showObject, showObjectLabel, showToolbar, updateGraph, uploadGgb;
+      var bringToFront, centerView, createObject, createObjects, createPoint, createPoints, deleteObject, deleteObjects, deletePoint, deletePoints, evalCommand, evalReporter, exportFile, exportGgb, exportWorld, getAll, getCommandString, getData, getDraggable, getGgbList, getGraphOffset, getObject, getObjectType, getObjects, getOpacity, getPoint, getPoints, getPointsString, getValue, getValueString, getX, getXy, getY, graphToPatch, hideGraph, hideObject, hideObjectLabel, hideToolbar, importFile, importGgb, importWorld, mouseOff, mouseOn, objectExists, patchToGraph, renameObject, sendToBack, setAll, setData, setDraggable, setGraphOffset, setOpacity, setX, setXy, setY, showGraph, showObject, showObjectLabel, showToolbar, updateGraph, uploadGgb;
       hideGraph = function() {
         return Graph.hideGraph();
       };
@@ -18675,11 +18687,23 @@ function hasOwnProperty(obj, prop) {
       getDraggable = function(name) {
         return Graph.getDraggable(name);
       };
-      getGgbList = function() {
-        return Graph.getGgbList();
+      mouseOn = function() {
+        return Graph.mouseOn();
+      };
+      mouseOff = function() {
+        return Graph.mouseOff();
+      };
+      getCommandString = function(name) {
+        return Graph.getCommandString(name);
       };
       uploadGgb = function() {
         return Graph.uploadGgb();
+      };
+      getGgbList = function() {
+        return Graph.getGgbList();
+      };
+      getValueString = function(name) {
+        return Graph.getValueString(name);
       };
       return {
         name: "graph",
@@ -18739,8 +18763,12 @@ function hasOwnProperty(obj, prop) {
           "CENTER-VIEW": centerView,
           "EXPORT-GGB": exportGgb,
           "GET-DRAGGABLE": getDraggable,
+          "MOUSE-ON": mouseOn,
+          "MOUSE-OFF": mouseOff,
+          "GET-COMMAND-STRING": getCommandString,
+          "UPLOAD-GGB": uploadGgb,
           "GET-GGB-LIST": getGgbList,
-          "UPLOAD-GGB": uploadGgb
+          "GET-VALUE-STRING": getValueString
         }
       };
     }
@@ -18898,7 +18926,7 @@ function hasOwnProperty(obj, prop) {
   module.exports = {
     dumper: void 0,
     init: function(workspace) {
-      var bringToFront, createMarker, createMarkers, createObject, createObjects, createPath, deleteMarker, deleteMarkers, deleteObject, deleteObjects, deletePath, deletePaths, exportFile, getAll, getCenterLatlng, getDraggable, getLat, getLatlng, getLng, getMapOffset, getMarker, getMarkers, getMyLatlng, getObject, getObjectType, getObjects, getOpacity, getPathColor, getPathVertices, getZoom, hideMap, hideObject, importFile, latlngToPatch, objectExists, patchToLatlng, sendToBack, setAll, setCenterLatlng, setDraggable, setLat, setLatlng, setLng, setMapOffset, setOpacity, setPathColor, setPathVertices, setZoom, showMap, showObject, updateMap, updateMyLatlng;
+      var bringToFront, createMarker, createMarkers, createObject, createObjects, createPath, deleteMarker, deleteMarkers, deleteObject, deleteObjects, deletePath, deletePaths, exportFile, getAll, getCenterLatlng, getDraggable, getLat, getLatlng, getLng, getMapOffset, getMarker, getMarkers, getMyLatlng, getObject, getObjectType, getObjects, getOpacity, getPathColor, getPathVertices, getZoom, hideMap, hideObject, importFile, latlngToPatch, mouseOff, mouseOn, objectExists, patchToLatlng, sendToBack, setAll, setCenterLatlng, setDraggable, setLat, setLatlng, setLng, setMapOffset, setOpacity, setPathColor, setPathVertices, setZoom, showMap, showObject, updateMap, updateMyLatlng;
       hideMap = function() {
         return Maps.hideMap();
       };
@@ -19061,6 +19089,12 @@ function hasOwnProperty(obj, prop) {
       updateMyLatlng = function() {
         return Maps.updateMyLatlng();
       };
+      mouseOn = function() {
+        return Maps.mouseOn();
+      };
+      mouseOff = function() {
+        return Maps.mouseOff();
+      };
       return {
         name: "maps",
         prims: {
@@ -19117,7 +19151,9 @@ function hasOwnProperty(obj, prop) {
           "SET-DRAGGABLE": setDraggable,
           "GET-DRAGGABLE": getDraggable,
           "GET-MY-LATLNG": getMyLatlng,
-          "UPDATE-MY-LATLNG": updateMyLatlng
+          "UPDATE-MY-LATLNG": updateMyLatlng,
+          "MOUSE-ON": mouseOn,
+          "MOUSE-OFF": mouseOff
         }
       };
     }

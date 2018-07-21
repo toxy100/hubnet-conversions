@@ -1,4 +1,3 @@
-var cat;
 var map;
 Maps = (function() {
 
@@ -144,6 +143,8 @@ Maps = (function() {
     drawPatches = false;
     map.invalidateSize()
     world.triggerUpdate();
+    Graph.mouseOn();
+    mouseOn();
   }
   
   function hideMap() {
@@ -534,6 +535,17 @@ Maps = (function() {
     setCenterLatlng(data.centerLatlng);
   }
   
+  function mouseOn() {
+    $(".netlogo-view-container").css("pointer-events","none"); //show graph
+    //if ($("#mapContainer").hasClass("grayscale")) { $("#mapContainer").removeClass("grayscale"); }
+  }
+  
+  function mouseOff() {
+    $(".netlogo-view-container").css("pointer-events","auto"); // hide graph, grayscale?
+    //$("#mapContainer").addClass("grayscale");
+  }
+
+  
   return {
     setupInterface: setupInterface,
     showMap: showMap,
@@ -587,6 +599,8 @@ Maps = (function() {
     getOpacity: getOpacity,
     setMapOffset: setMapOffset,
     getMapOffset: getMapOffset,
+    mouseOff: mouseOff,
+    mouseOn: mouseOn,
     
     createObject: createObject,
     createObjects: createObjects,
@@ -600,8 +614,8 @@ Maps = (function() {
     hideObject: hideObject,
     
     setAll: setAll,
-    getAll: getAll,
-  
+    getAll: getAll
+
   };
  
 })();

@@ -41,5 +41,5 @@ jQuery(document).ready(function() {
   $("#importDrawingFileElem").change(function(event) {
     Interface.importImageFile();
   });
-
+  
 });

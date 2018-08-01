@@ -161,7 +161,7 @@ Interface = (function() {
     } else if (widget === "button" ) {
       value = "";
     } else {
-      value = world.observer.getGlobal(label);
+      value = world.observer.getGlobal(label.toLowerCase());
       socket.emit("send reporter", {hubnetMessageSource: "server", hubnetMessageTag: label, hubnetMessage:value});
     }
     socket.emit("send command", {hubnetMessageTag: label, hubnetMessage:value});

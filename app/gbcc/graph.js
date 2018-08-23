@@ -37,7 +37,7 @@ Graph = (function() {
       
       setupEventListeners();
       spanText = "<form action='exportggb' method='post' id='exportggb' enctype='multipart/form-data' style='display: none;'>";
-      spanText += "<input id='ggbxml' type='text' name='ggbxml' value=''>";//" style='display: none;'>";
+      spanText += "<textarea cols='50' id='ggbxml' type='text' wrap='hard' name='ggbxml' value=''></textarea>";//" style='display: none;'>";
       spanText += "<input id='ggbfilename' type='text' name='ggbfilename' value='' style='display: none;'>";
       spanText += "<button type='submit' id='exportggbbutton' ></button></form>";
       
@@ -168,7 +168,9 @@ Graph = (function() {
   function showGraph() {
     $(".netlogo-view-container").css("z-index","1");
     $("#graphContainer").css("display","inline-block");
-    $(".netlogo-view-container").css("pointer-events","none");
+    if (!mirroringEnabled) {
+      $(".netlogo-view-container").css("pointer-events","none"); 
+    }
     $("#opacityWrapper").css("top",parseInt($("#graphContainer").css("top") - 15) + "px");
     $("#opacityWrapper").css("left",$("#graphContainer").css("left"));
     $("#opacityWrapper").css("display", "inline-block");
@@ -548,8 +550,10 @@ Graph = (function() {
   }
   
   function mouseOn() {
-    $(".netlogo-view-container").css("pointer-events","none"); //show graph
-    //if ($("#graphContainer").hasClass("grayscale")) { $("#graphContainer").removeClass("grayscale"); }
+    if (!mirroringEnabled) {
+      $(".netlogo-view-container").css("pointer-events","none");//show graph
+    }
+      //if ($("#graphContainer").hasClass("grayscale")) { $("#graphContainer").removeClass("grayscale"); }
   }
   
   function mouseOff() {

@@ -4,24 +4,26 @@ var commandQueue = [];
 var userData = {};
 var myData = {};
 var userStreamData = {};
+var myWorld;
 var myStreamData = {};
-//var repaintPatches = true;
 var foreverButtonCode = new Object();
 var myUserType;
 var activityType = undefined;
 var drawPatches = true;
-var mirroringEnabled = false;
+var mirroringEnabled = true;
+var myCanvas;
   
 jQuery(document).ready(function() {
-  
-  $("body").append("<img id='imageLayer' width='200px' height='200px' style='display:none'>")
 
   var userId;
-  //var userType;
   var turtleDict = {};
   var allowMultipleButtonsSelected = true;
   var allowGalleryForeverButton = true;
+  
   socket = io();
+  
+  var myForeverButtonVar = "";
+  var myMirrorVar = "";
 
   // save student settings
   socket.on("save settings", function(data) {
@@ -106,19 +108,9 @@ jQuery(document).ready(function() {
     Interface.showAdmin(data.roomData);
   });
 
-  // student repaints most recent changes to world (hubnet, not gbcc)
-  socket.on("send update", function(data) {
-    if (mirroringEnabled) {
-      universe.applyUpdate({turtles: data.turtles, patches: data.patches});
-      universe.repaint();
-    }
-  });
-
   // show or hide student view or gallery
   socket.on("student accepts UI change", function(data) {
-    if (data.type === "mirror") {
-      mirroringEnabled = data.display;
-    } else if (data.type === "view") {
+    if (data.type === "view") {
       (data.display) ? $(".netlogo-view-container").css("display","block") : $(".netlogo-view-container").css("display","none");
     } else if (data.type === "tabs") {
       (data.display) ? $(".netlogo-tab-area").css("display","block") : $(".netlogo-tab-area").css("display","none");
@@ -129,7 +121,7 @@ jQuery(document).ready(function() {
         for (userId in foreverButtonCode) {
           delete foreverButtonCode[userId];
         }
-        if ($.isEmptyObject(foreverButtonCode)) { clearInterval(myVar); }
+        if ($.isEmptyObject(foreverButtonCode)) { clearInterval(myForeverButtonVar); }
       } else {
         var teacherId = data.teacherId;
         $(".netlogo-gallery-tab").css("display","none"); 
@@ -137,13 +129,35 @@ jQuery(document).ready(function() {
         for (userId in foreverButtonCode) {
           delete foreverButtonCode[userId];
         }
-        if ($.isEmptyObject(foreverButtonCode)) { clearInterval(myVar); }
+        if ($.isEmptyObject(foreverButtonCode)) { clearInterval(myForeverButtonVar); }
         userStreamData[data.teacherId] = {};
-        if ($.isEmptyObject(foreverButtonCode)) { myVar = setInterval(runForeverButtonCode, 200); }
+        if ($.isEmptyObject(foreverButtonCode)) { myForeverButtonVar = setInterval(runForeverButtonCode, 200); }
         foreverButtonCode[teacherId] = "gbcc-forever-button-code-"+teacherId;
       }
-      $(".gbcc-gallery li.selected").length
     }
+    if (data.type === "mirror") {
+      mirroringEnabled = data.display;
+      if (data.state) {
+        if (mirroringEnabled) {
+          myWorld = data.state;
+          world.miniWorkspace.importCSV(data.state);
+        } else {
+          if (myWorld) { 
+            world.importState(myWorld);
+          }
+        }
+      } 
+      if (data.image && mirroringEnabled) {
+        universe.applyUpdate({ drawingEvents: [{type: "import-drawing", sourcePath: data.image}] });
+      }
+    }
+  });
+  
+  //"teacher accepts new entry request"
+  socket.on("teacher accepts new entry request", function(data) {
+    var state = world.exportCSV();
+    blob = myCanvas.toDataURL("image/jpeg", 0.5); 
+    socket.emit('teacher requests UI change new entry', {'userId':  data.userId, 'state': state, 'image': blob});
   });
 
   // students display reporters
@@ -184,16 +198,34 @@ jQuery(document).ready(function() {
   });
   
   socket.on("accept user stream data", function(data) {
-    //console.log("accept user stream data", data);
     if (!allowGalleryForeverButton || (allowGalleryForeverButton && !$(".netlogo-gallery-tab-content").hasClass("selected"))) {
       if (userStreamData[data.userId] === undefined) {
         userStreamData[data.userId] = {};
       }
-      if (userStreamData[data.userId][data.tag] === undefined) {
-        userStreamData[data.userId][data.tag] = [];
-      }
       userStreamData[data.userId][data.tag].push(data.value);
       userData[data.userId][data.tag] = data.value;
+    }
+  });
+  
+  socket.on("accept user mirror data", function(data) {
+    var turtles = data.value.turtles;
+    var patches = data.value.patches;
+    var links = data.value.links;
+    var drawingEvents = data.value.drawingEvents;
+    if (!allowGalleryForeverButton || (allowGalleryForeverButton && !$(".netlogo-gallery-tab-content").hasClass("selected"))) {
+      if (turtles) { 
+        universe.applyUpdate({ turtles: turtles }); 
+      }
+      if (patches) { 
+        universe.applyUpdate({ patches: patches }); 
+      }
+      if (links) { 
+        universe.applyUpdate({ links: links }); 
+      }
+      if (drawingEvents) { 
+        universe.applyUpdate({ drawingEvents: drawingEvents }); 
+      }
+      world.triggerUpdate();
     }
   });
   
@@ -218,17 +250,16 @@ jQuery(document).ready(function() {
         break;
       case "forever-deselect":
         delete foreverButtonCode[data.userId];
-        if ($.isEmptyObject(foreverButtonCode)) { clearInterval(myVar); }
+        if ($.isEmptyObject(foreverButtonCode)) { clearInterval(myForeverButtonVar); }
         break;
       case "forever-select":
         userStreamData[data.userId] = {};
-        if ($.isEmptyObject(foreverButtonCode)) { myVar = setInterval(runForeverButtonCode, 200); }
+        if ($.isEmptyObject(foreverButtonCode)) { myForeverButtonVar = setInterval(runForeverButtonCode, 200); }
         foreverButtonCode[data.userId] = "gbcc-forever-button-code-"+data.userId;
         break;
     }
   });
-
-  var myVar = "";
+  
   function runForeverButtonCode() {
     for (userId in foreverButtonCode) { 
       if (procedures.gbccOnGo != undefined) {
@@ -236,6 +267,21 @@ jQuery(document).ready(function() {
       }
     }
   }
+  
+  // show or hide student view or gallery
+  socket.on("student accepts mirror change", function(data) {
+    if (data.type === "mirror") {
+      mirroringEnabled = data.display;
+    }
+    if (mirroringEnabled && data.type === "mirror") {
+      myWorld = data.state;
+      world.miniWorkspace.importCSV(data.state);
+    } else {
+      if (myWorld) { 
+        world.importState(myWorld);
+      }
+    }
+  });
 
   socket.on("execute command", function(data) {
     var commandObject = {};

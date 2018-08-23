@@ -93,7 +93,6 @@ Interface = (function() {
       ($("#tips").css("display") === "none") ? $("#tips").css("display","inline-block") : $("#tips").css("display","none"); 
     });
     $("#exportHtmlButton").css("display","none");
-    setupExtensions();
   }
 
   function displayTeacherInterface(room, components) {
@@ -150,7 +149,7 @@ Interface = (function() {
     var id = $(thisElement).attr("id");
     var label = $("#"+id+" .netlogo-label").text();
     if (widget === "view") {
-      label = "view";
+      label = "View";
       offset = $(thisElement).offset();
       value = [ universe.view.xPixToPcor(e.clientX - offset.left), universe.view.yPixToPcor(e.clientY - offset.top) ];
     } else if (widget === "button" ) {
@@ -208,16 +207,17 @@ Interface = (function() {
     var viewHeight = parseFloat($(".netlogo-canvas").css("height"));
     var spanText;
     if (activityType === "hubnet") {
-      $(".netlogo-widget-container").append("<span class='teacher-controls hidden' style='float:right'><input id='enableMirroring' type='checkbox'>Enable Mirroring</span>");
+      $(".netlogo-widget-container").append("<span class='teacher-controls hidden' style='float:right'><input id='enableMirroring' checked type='checkbox'>Enable: Mirroring</span>");
       $(".teacher-controls").css("top", parseFloat($(".netlogo-view-container").css("top")) + parseFloat($(".netlogo-view-container").css("height")) - 0 + "px");
-      $(".teacher-controls").css("left", parseFloat($(".netlogo-view-container").css("left")) + parseFloat($(".netlogo-view-container").css("width")) - 112 + "px");
+      $(".teacher-controls").css("left", parseFloat($(".netlogo-view-container").css("left")) + parseFloat($(".netlogo-view-container").css("width")) - 128 + "px");
     } else {
-      spanText = "<span class='teacher-controls hidden' style='float:right'>Enable:";
+      spanText = "<span class='teacher-controls hidden' style='float:right'>";
+      //spanText = "<span class='teacher-controls hidden' style='float:right'>Enable:";
       spanText += "<input id='enableView' checked type='checkbox'>View";
       spanText += "<input id='enableTabs' checked type='checkbox'>Tabs";
       spanText += "<input id='enableGallery' checked type='checkbox'>Gallery</span>";
       $(".netlogo-widget-container").append(spanText);
-      $(".teacher-controls").css("left", parseFloat($(".netlogo-view-container").css("left")) + parseFloat($(".netlogo-canvas").css("width")) - 200 + "px");
+      $(".teacher-controls").css("left", parseFloat($(".netlogo-view-container").css("left")) + parseFloat($(".netlogo-canvas").css("width")) - 160 + "px");
     }
     $(".teacher-controls").css("position","absolute");
     $(".teacher-controls").css("top", parseFloat($(".netlogo-view-container").css("top")) + parseFloat($(".netlogo-canvas").css("height")) + "px");
@@ -233,7 +233,13 @@ Interface = (function() {
     });
     $("#enableMirroring").click(function() {
       mirroringEnabled = $(this).prop("checked") ? true : false;
-      socket.emit('teacher requests UI change', {'display': mirroringEnabled, 'type': 'mirror'});
+      if (mirroringEnabled) {
+        var state = world.exportCSV();
+        var blob = myCanvas.toDataURL("image/jpeg", 0.5); 
+        socket.emit('teacher requests UI change', {'display': mirroringEnabled, 'state': state, 'type': 'mirror', 'image': blob});
+      } else {
+        socket.emit('teacher requests UI change', {'display': mirroringEnabled, 'state': "", 'type': 'mirror' });        
+      }
       socket.emit('teacher requests UI change', {'display': mirroringEnabled, 'type': 'view'});
     });
   }
@@ -247,99 +253,13 @@ Interface = (function() {
     }
   }
   
-  function setupExtensions() {
-    Graph.setupInterface();
-  }
-  
-  function importImageFile() {
-    var fileInput = document.getElementById("importDrawingFileElem");
-    var xmin = $("#importDrawingFileElem").attr("xmin");
-    var ymin = $("#importDrawingFileElem").attr("ymin");
-    var width = $("#importDrawingFileElem").attr("width");
-    var height = $("#importDrawingFileElem").attr("height");
-    //var files = fileInput.files;
-    var file = fileInput.files[0];
-    var filename = file.name;
-    var src = (window.URL || window.webkitURL).createObjectURL(file);
-    if ($("#"+filename.replace(".","")+"-"+xmin+"-"+ymin+"-"+width+"-"+height).length > 0) {
-      $("#"+filename.replace(".","")+"-"+xmin+"-"+ymin+"-"+width+"-"+height).attr("src",src);
-    } else {
-      $("body").append("<img class='uploadImage' id='"+filename.replace(".","")+"-"+xmin+"-"+ymin+"-"+width+"-"+height+"' xmin=\""+xmin+"\" ymin=\""+ymin+"\" width=\""+width+"\" height=\""+height+"\" src='"+src+"' style='display:none'>");
-    }
-    universe.repaint();
-  }
-  
-  //gbcc:import-drawing ["img-from-webpage" "https://www.google.com" 0 0 200 200]
-  //gbcc:import-drawing ["img-from-file-upload" "" 0 0 200 200 ]
-  //gbcc:import-drawing ["img-from-file" "glacier.jpg" 0 0 200 200]
-  //gbcc:import-drawing ["img-remove" "" 0 0 0 0]
-  function importDrawing(data) {
-    var action = data[0];
-    var filename = data[1];
-    var xmin = data[2];
-    var ymin = data[3];
-    var width = data[4];
-    var height = data[5];
-    if (action === "img-remove") {
-      repaintPatches = true;
-      $(".uploadImage").remove();
-      universe.repaint();
-    } else {
-      repaintPatches = false;
-      if (action === "img-from-webpage") {
-        // Code from: https://shkspr.mobi/blog/2015/11/google-secret-screenshot-api/
-        site = filename;
-        filename = "screenshot-from-url-"+$(".uploadImage").length;
-        $.ajax({
-          url: 'https://www.googleapis.com/pagespeedonline/v1/runPagespeed?url=' + site + '&screenshot=true',
-          context: this,
-          type: 'GET',
-          dataType: 'json',
-          success: function(allData) {
-            imgData = allData.screenshot.data.replace(/_/g, '/').replace(/-/g, '+');
-            imgData = 'data:image/jpeg;base64,' + imgData;
-            if ($("#"+filename.replace(".","")+"-"+xmin+"-"+ymin+"-"+width+"-"+height).length > 0) {
-              $("#"+filename.replace(".","")+"-"+xmin+"-"+ymin+"-"+width+"-"+height).attr("src",imgData);
-            } else {
-              $("body").append("<img class='uploadImage' id='"+filename+"-"+xmin+"-"+ymin+"-"+width+"-"+height+"' xmin=\""+xmin+"\" ymin=\""+ymin+"\" width=\""+width+"\" height=\""+height+"\" src='"+imgData+"' style='display:none'>");
-            }
-            universe.repaint();
-          }
-        });
-      } else if (action === "img-from-file-upload") {
-        $("#importDrawingFileElem").attr("xmin",xmin);
-        $("#importDrawingFileElem").attr("ymin",ymin);
-        $("#importDrawingFileElem").attr("width",width);
-        $("#importDrawingFileElem").attr("height",height);
-        $("#importDrawingFileElem").click();
-      } else if (action === "img-from-file") {
-        $.get("images/"+filename)
-        .done(function() { 
-          // Do something now you know the image exists.
-          if ($("#"+filename.replace(".","")+"-"+xmin+"-"+ymin+"-"+width+"-"+height).length > 0) {
-            $("#"+filename.replace(".","")+"-"+xmin+"-"+ymin+"-"+width+"-"+height).attr("src","images/"+filename);
-          } else {
-            $("body").append("<img class='uploadImage' id='"+filename.replace(".","")+"-"+xmin+"-"+ymin+"-"+width+"-"+height+"' xmin=\""+xmin+"\" ymin=\""+ymin+"\" width=\""+width+"\" height=\""+height+"\" src='images/"+filename+"' style='display:none'>");
-          }
-          universe.repaint();
-        }).fail(function() { 
-        // Image doesn't exist - do something else.
-        });
-        
-        
-      }
-    }
-  }
-
   return {
     showLogin: displayLoginInterface,
     showTeacher: displayTeacherInterface,
     showStudent: displayStudentInterface,
     showDisconnected: displayDisconnectedInterface,
     showAdmin: displayAdminInterface,
-    clearRoom: clearRoom,
-    importDrawing: importDrawing,
-    importImageFile: importImageFile
+    clearRoom: clearRoom
   };
  
 })();

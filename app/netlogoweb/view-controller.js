@@ -1,5 +1,5 @@
 (function() {
-  var Drawer, DrawingLayer, FOLLOW, ImageLayer, OBSERVE, PatchDrawer, RIDE, SpotlightDrawer, TurtleDrawer, View, WATCH,
+  var Drawer, DrawingLayer, FOLLOW, OBSERVE, PatchDrawer, RIDE, SpotlightDrawer, TurtleDrawer, View, WATCH,
     bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty,
@@ -12,8 +12,11 @@
       this.mouseXcor = bind(this.mouseXcor, this);
       this.view = new View(fontSize);
       this.turtleDrawer = new TurtleDrawer(this.view);
-      this.imageLayer = new ImageLayer(this.view);
-      this.drawingLayer = new DrawingLayer(this.view, this.turtleDrawer);
+      this.drawingLayer = new DrawingLayer(this.view, this.turtleDrawer, (function(_this) {
+        return function() {
+          return _this.repaint();
+        };
+      })(this));
       this.patchDrawer = new PatchDrawer(this.view);
       this.spotlightDrawer = new SpotlightDrawer(this.view);
       this.container.appendChild(this.view.visibleCanvas);
@@ -26,6 +29,9 @@
       this.model = new AgentModel();
       this.model.world.turtleshapelist = defaultShapes;
       this.repaint();
+      // <!-- GBCC -->
+      universe = this;
+      // <!-- END GBCC -->
     }
 
     ViewController.prototype.mouseXcor = function() {
@@ -107,14 +113,11 @@
 
     ViewController.prototype.repaint = function() {
       this.view.transformToWorld(this.model.world);
-      <!-- GBCC -->
+      // <!-- GBCC -->
       if (drawPatches) {
         this.patchDrawer.repaint(this.model);
       }
-      <!-- END GBCC -->
-
-      //this.patchDrawer.repaint(this.model);
-      this.imageLayer.repaint();
+      // <!-- END GBCC -->
       this.drawingLayer.repaint(this.model);
       this.turtleDrawer.repaint(this.model);
       this.spotlightDrawer.repaint(this.model);
@@ -122,6 +125,7 @@
     };
 
     ViewController.prototype.applyUpdate = function(modelUpdate) {
+      //console.log("apply update", modelUpdate);
       return this.model.update(modelUpdate);
     };
 
@@ -131,13 +135,16 @@
       for (k = 0, len = updates.length; k < len; k++) {
         u = updates[k];
         
-        <!-- GBCC -->
-        if (socket && activityType === "hubnet" && mirroringEnabled && myUserType === "teacher") {
-          socket.emit("update", {turtles: modelUpdate[k].turtles}); 
-          socket.emit("update", {patches: modelUpdate[k].patches});
+        // <!-- GBCC -->
+        if (socket && activityType === "hubnet" && myUserType === "teacher") {
+          socket.emit('send mirror reporter', {
+            hubnetMessageSource: "server",
+            hubnetMessageTag: "",
+            hubnetMessage: modelUpdate[k]
+          });
         }
-        universe = this;
-        <!-- END GBCC -->
+        //universe = this;
+        // <!-- END GBCC -->
 
         this.applyUpdate(u);
       }
@@ -418,36 +425,10 @@
     }
   }
   
-  { type: "import-drawing", sourcePath }
-  
   { type: "zoom", scale }
   
   { type: "reset-zoom" }
    */
-
-  ImageLayer = (function(superClass) {
-    extend(ImageLayer, superClass);
-
-    function ImageLayer(view) {
-      this.view = view;
-      this.canvas = document.createElement('canvas');
-      this.canvas.id = 'ilayer';
-      this.ctx = this.canvas.getContext('2d');
-    }
-
-    ImageLayer.prototype.repaint = function() {
-      var img;
-      img = document.getElementById("imageLayer");
-      if ($("#imageLayer").prop("src")) {
-        return this.view.ctx.drawImage(img, 0, 0, this.view.canvas.width, this.view.canvas.height);
-      } else {
-        return this.view.ctx.drawImage(this.canvas, 0, 0);
-      }
-    };
-
-    return ImageLayer;
-
-  })(Drawer);
 
   DrawingLayer = (function(superClass) {
     extend(DrawingLayer, superClass);
@@ -461,6 +442,7 @@
       this.canvas = document.createElement('canvas');
       this.canvas.id = 'dlayer';
       this.ctx = this.canvas.getContext('2d');
+      myCanvas = this.canvas;
     }
 
     DrawingLayer.prototype.resizeCanvas = function() {
@@ -591,10 +573,14 @@
           return function() {
             _this.ctx.save();
             _this.ctx.strokeStyle = _this._rgbToCss(penColor);
-            _this.ctx.lineWidth = _this.view.onePixel;
+            _this.ctx.lineWidth = size * _this.view.onePixel;
+	          _this.ctx.lineCap = 'round';
             _this.ctx.beginPath();
             _this.ctx.moveTo(x1, y1);
             _this.ctx.lineTo(x2, y2);
+            
+                  
+                  
             _this.view.withCompositing(_this.compositingOperation(penMode), _this.ctx)(function() {
               return _this.ctx.stroke();
             });
@@ -913,14 +899,18 @@
       var patches, world;
       world = model.world;
       patches = model.patches;
-      if (world.patchesallblack) {
-        this.clearPatches();
-      } else {
+      // <!-- GBCC -->
+      if (mirroringEnabled) {
         this.colorPatches(patches);
+      } else if (world.patchesallblack) {
+        this.clearPatches();
+        } else {
+        this.colorPatches(patches);        
       }
-      if (world.patcheswithlabels) {
+      if (world.patcheswithlabels || mirroringEnabled) {
         return this.labelPatches(patches);
       }
+      // <!-- END GBCC -->
     };
 
     return PatchDrawer;

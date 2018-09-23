@@ -10,7 +10,7 @@ var foreverButtonCode = new Object();
 var myUserType;
 var activityType = undefined;
 var drawPatches = true;
-var mirroringEnabled = true;
+var mirroringEnabled;
 var myCanvas;
   
 jQuery(document).ready(function() {
@@ -19,16 +19,31 @@ jQuery(document).ready(function() {
   var turtleDict = {};
   var allowMultipleButtonsSelected = true;
   var allowGalleryForeverButton = true;
-  
+  var teacherId;
+  var viewOverride = {};
+  viewOverride.turtles = {};
+  viewOverride.patches = {};
+  viewOverride.links = {};
+  viewOverride.observer = {};
+  viewOverride.drawingEvents = {};
+  var viewState = undefined;
+  /*
+  viewState.turtles = {};
+  viewState.patches = {};
+  viewState.links = {};
+  viewState.observer = {};
+  viewState.drawingEvents = {};
+  */
   socket = io();
-  
   var myForeverButtonVar = "";
   var myMirrorVar = "";
 
   // save student settings
   socket.on("save settings", function(data) {
+    
     userId = data.userId;
     myUserType = data.userType;
+    teacherId = data.teacherId;
     $(".netlogo-canvas").attr("id","netlogoCanvas"); 
     Gallery.setupGallery({settings: data.gallerySettings, userId: userId});
     Physics.setupInterface();
@@ -49,7 +64,10 @@ jQuery(document).ready(function() {
 
   // display teacher or student interface
   socket.on("display interface", function(data) {
-    if (activityType === undefined) { activityType = data.activityType; }
+    if (activityType === undefined) { 
+      activityType = data.activityType; 
+      mirroringEnabled = (activityType === "gbcc") ? false : true;
+    }
     switch (data.userType) {
       case "teacher": //as teacher, show teacher interface
         Interface.showTeacher(data.room, data.components);
@@ -102,6 +120,26 @@ jQuery(document).ready(function() {
       session.runCode(userData[data.userId]["gbcc-exit-button-code-"+data.userId]); 
     }
   });
+  
+  socket.on("gbcc user message", function(data) {
+    if (procedures.gbccOnMessage) {
+      var tag = data.hubnetMessageTag;
+      var message = data.hubnetMessage;
+      var uId = data.hubnetMessageSource;
+      var uType = data.userType;
+      var compileString;
+      if (typeof message === "string") {
+        compileString = 'try { var reporterContext = false; var letVars = { }; procedures["GBCC-ON-MESSAGE"]("'+uId+'","'+uType+'","'+tag+'","'+message+'"); } catch (e) { if (e instanceof Exception.StopInterrupt) { return e; } else { throw e; } }'
+      } else {
+        if ((typeof message === "boolean") || (typeof message === "number")) { 
+          compileString = 'try { var reporterContext = false; var letVars = { }; procedures["GBCC-ON-MESSAGE"]("'+uId+'","'+uType+'","'+tag+'", '+message+' ); } catch (e) { if (e instanceof Exception.StopInterrupt) { return e; } else { throw e; } }'        
+        } else {
+          compileString = 'try { var reporterContext = false; var letVars = { }; procedures["GBCC-ON-MESSAGE"]("'+uId+'","'+uType+'","'+tag+'", '+JSON.stringify(message)+' ); } catch (e) { if (e instanceof Exception.StopInterrupt) { return e; } else { throw e; } }'                  
+        }
+      }
+      session.runCode(compileString); 
+    }
+  });
 
   // display admin interface
   socket.on("display admin", function(data) {
@@ -123,7 +161,6 @@ jQuery(document).ready(function() {
         }
         if ($.isEmptyObject(foreverButtonCode)) { clearInterval(myForeverButtonVar); }
       } else {
-        var teacherId = data.teacherId;
         $(".netlogo-gallery-tab").css("display","none"); 
         $(".netlogo-gallery-tab-content").css("display","none");  
         for (userId in foreverButtonCode) {
@@ -137,26 +174,26 @@ jQuery(document).ready(function() {
     }
     if (data.type === "mirror") {
       mirroringEnabled = data.display;
+      if (data.image && mirroringEnabled) {
+        universe.model.drawingEvents.push({type: "import-drawing", sourcePath: data.image});
+      }
       if (data.state) {
         if (mirroringEnabled) {
           myWorld = data.state;
-          world.miniWorkspace.importCSV(data.state);
+          ImportExportPrims.importWorldRaw(data.state);
         } else {
           if (myWorld) { 
             world.importState(myWorld);
           }
         }
       } 
-      if (data.image && mirroringEnabled) {
-        universe.applyUpdate({ drawingEvents: [{type: "import-drawing", sourcePath: data.image}] });
-      }
     }
   });
   
   //"teacher accepts new entry request"
   socket.on("teacher accepts new entry request", function(data) {
     var state = world.exportCSV();
-    blob = myCanvas.toDataURL("image/jpeg", 0.5); 
+    var blob = myCanvas.toDataURL("image/png", 0.5);
     socket.emit('teacher requests UI change new entry', {'userId':  data.userId, 'state': state, 'image': blob});
   });
 
@@ -207,30 +244,195 @@ jQuery(document).ready(function() {
     }
   });
   
+  function saveUpdate(updates, agentType) {
+    var agents = updates[agentType];
+    for (var agent in agents) {
+      if (!viewState[agentType][agent]) { viewState[agentType][agent] = {}; }
+      for (var tag in agents[agent]) { 
+        viewState[agentType][agent][tag] = agents[agent][tag]; 
+      }
+    }
+  }
+  
+  function overrideUpdate(updates, agentType) {
+    var agents = updates[agentType];
+    var agent;
+    var tag;
+    if (viewOverride[agentType] && agents) {
+      for (var agent in viewOverride[agentType]) {
+        for (var tag in viewOverride[agentType][agent]) {
+          if (updates[agentType][agent] && updates[agentType][agent][tag] != undefined) {
+            delete updates[agentType][agent][tag];
+          }
+        }
+      }
+    }
+    updates[agentType] = agents;
+    return updates;
+  }
+  
+  function applyOverride(agentIds, agentType, tag, message) {
+    var updates = {};
+    updates[agentType] = {};
+    var agent;
+    for (var a in agentIds) {
+      agent = agentIds[a];
+      if (!updates[agentType][agent]) { updates[agentType][agent] = {}; }
+      updates[agentType][agent][tag] = message; 
+      if (!viewOverride[agentType][agent]) { viewOverride[agentType][agent] = {}; }
+      viewOverride[agentType][agent][tag] = message;
+    }
+    return updates;
+  }
+  
+  function removeOverride(agents, tag) {
+    var agentIds = agents.ids;
+    var agentType = agents.agentType;
+    var updates = {};
+    var agent;
+    updates[agentType] = {};
+    for (a in agentIds) {
+      agent = agentIds[a];
+      updates[agentType][agent] = {};
+      if ((viewState[agentType][agent][tag.toLowerCase()] != undefined) || (viewState[agentType][agent][tag.toUpperCase()] != undefined)) {
+        updates[agentType][agent][tag] =  (viewState[agentType][agent][tag.toUpperCase()] != undefined) ? viewState[agentType][agent][tag.toUpperCase()] : viewState[agentType][agent][tag.toLowerCase()];        
+      }
+      if (viewOverride[agentType][agent] && ((viewOverride[agentType][agent][tag.toLowerCase()] != undefined) || viewOverride[agentType][agent][tag.toUpperCase()] != undefined)) {
+        if (viewOverride[agentType][agent][tag.toUpperCase()] != undefined) {
+          delete viewOverride[agentType][agent][tag.toUpperCase()];
+        } else {
+          delete viewOverride[agentType][agent][tag.toLowerCase()];        
+        }
+      }
+    } 
+    return updates;
+  }
+  
+  function removeOverrides() {
+    var updates = {};
+    var agentTypes = ["turtles", "patches", "links"];
+    var agentType;
+    for (var a in agentTypes) {
+      agentType = agentTypes[a];
+      updates[agentType] = {};
+      for (var agent in viewOverride[agentType]) { 
+        for (var tag in viewOverride[agentType][agent]) { 
+          updates[agentType][agent] = {};
+          if ((viewState[agentType][agent][tag.toLowerCase()] != undefined) || (viewState[agentType][agent][tag.toUpperCase()] != undefined)) {
+            if (viewState[agentType][agent][tag.toUpperCase()] != undefined) {
+              updates[agentType][agent][tag] = viewState[agentType][agent][tag.toUpperCase()];
+            } else {
+              updates[agentType][agent][tag] = viewState[agentType][agent][tag.toLowerCase()];        
+            }
+          }
+          if (viewOverride[agentType][agent] && ((viewOverride[agentType][agent][tag.toLowerCase()] != undefined) || viewOverride[agentType][agent][tag.toUpperCase()] != undefined)) {
+            if (viewOverride[agentType][agent][tag.toUpperCase()] != undefined) {
+              delete viewOverride[agentType][agent][tag.toUpperCase()];
+            } else {
+              delete viewOverride[agentType][agent][tag.toLowerCase()];        
+            }
+          }
+        }
+      }
+      if (Object.keys(updates[agentType]).length === 0) {delete updates[agentType]; };
+    }
+    return updates;
+  }
+  
   socket.on("accept user mirror data", function(data) {
-    var turtles = data.value.turtles;
-    var patches = data.value.patches;
-    var links = data.value.links;
-    var drawingEvents = data.value.drawingEvents;
+    if (!viewState) {
+      viewState = {};
+      viewState.turtles = JSON.parse(JSON.stringify(universe.model.turtles));
+      viewState.patches = JSON.parse(JSON.stringify(universe.model.patches));
+      viewState.links = JSON.parse(JSON.stringify(universe.model.links));
+      viewState.drawingEvents = {};
+      viewState.observer = {};
+    }
     if (!allowGalleryForeverButton || (allowGalleryForeverButton && !$(".netlogo-gallery-tab-content").hasClass("selected"))) {
-      if (turtles) { 
-        universe.applyUpdate({ turtles: turtles }); 
+      var updates = data.value;
+      saveUpdate(updates, "turtles");
+      saveUpdate(updates, "patches");
+      saveUpdate(updates, "links");
+      saveUpdate(updates, "observer");
+      updates = overrideUpdate(updates, "turtles");
+      updates = overrideUpdate(updates, "patches");
+      updates = overrideUpdate(updates, "links");
+      updates = overrideUpdate(updates, "observer");
+      universe.applyUpdate( updates );
+      world.triggerUpdate();
+    }
+  });
+  
+  function combineUpdates(updates) {
+    var update = {};
+    for (var u in updates) {
+      for (var agentType in updates[u]) {
+        if (!update[agentType]) { update[agentType] = {}; }
+        for (var agent in updates[u][agentType]) {
+          if (!update[agentType][agent]) { update[agentType][agent] = {};}
+          for (var tag in updates[u][agentType][agent]) {
+            update[agentType][agent][tag] = updates[u][agentType][agent][tag];
+          }
+        }
       }
-      if (patches) { 
-        universe.applyUpdate({ patches: patches }); 
+    }
+    if (update["drawingEvents"]) {
+      var drawingEventObj = update["drawingEvents"][0];
+      update["drawingEvents"] = [];
+      update["drawingEvents"].push(drawingEventObj); 
+    }
+    return update;
+  }
+  
+  socket.on("accept user override", function(data) {
+    var updates = [];
+    if (!viewState) {
+      viewState = {};
+      viewState.turtles = JSON.parse(JSON.stringify(universe.model.turtles));
+      viewState.patches = JSON.parse(JSON.stringify(universe.model.patches));
+      viewState.links = JSON.parse(JSON.stringify(universe.model.links));
+      viewState.drawingEvents = {};
+      viewState.observer = {};
+    }
+    if (myUserType === "student") {
+      var messageType = data.messageType;
+      var agents = data.agents;
+      var source = data.source;
+      var tag = data.tag;
+      var message = data.message;
+      var updates = [];
+      switch (messageType) {
+        case "send-override": // hubnet-send-override string agent string reporter
+          updates.push(applyOverride(agents.ids, agents.agentType, tag.toUpperCase(), message));
+          break;           
+        case "send-follow": // hubnet-send-follow client-name agent radius 
+          updates.push(applyOverride([0], "observer", "perspective", 2));
+          updates.push(applyOverride([0], "observer", "targetAgent", [1, agents.ids[0]]));
+          updates.push(applyOverride([0], "drawingEvents", "type", "zoom"));
+          updates.push(applyOverride([0], "drawingEvents", "scale", message));
+          break;
+        case "send-watch": // hubnet-send-watch client-name agent
+          updates.push(applyOverride([0], "observer", "perspective", 3));
+          updates.push(applyOverride([0], "observer", "targetAgent", [1, agents.ids[0]]));
+          break;
+        case "clear-override": // hubnet-clear-override client agent-or-set variable-name
+          updates.push(removeOverride(agents, tag.toUpperCase()));          
+          break;
+        case "clear-overrides": // hubnet-clear-overrides client
+          updates.push(removeOverrides());
+        case "reset-perspective": // hubnet-reset-perspective client-name
+          updates.push(applyOverride([0], "observer", "perspective", 0));
+          updates.push(applyOverride([0], "observer", "targetAgent", undefined));
+          updates.push(applyOverride([0], "drawingEvents", "type", "reset-zoom"));
+          break;
       }
-      if (links) { 
-        universe.applyUpdate({ links: links }); 
-      }
-      if (drawingEvents) { 
-        universe.applyUpdate({ drawingEvents: drawingEvents }); 
-      }
+      var update = combineUpdates(updates);
+      universe.applyUpdate(update);
       world.triggerUpdate();
     }
   });
   
   socket.on("accept all user data", function(data) {
-    //console.log("accept ALL user data");
     if (!allowGalleryForeverButton || (allowGalleryForeverButton && !$(".netlogo-gallery-tab-content").hasClass("selected"))) {
       userData = data.userData;
     }
@@ -267,21 +469,6 @@ jQuery(document).ready(function() {
       }
     }
   }
-  
-  // show or hide student view or gallery
-  socket.on("student accepts mirror change", function(data) {
-    if (data.type === "mirror") {
-      mirroringEnabled = data.display;
-    }
-    if (mirroringEnabled && data.type === "mirror") {
-      myWorld = data.state;
-      world.miniWorkspace.importCSV(data.state);
-    } else {
-      if (myWorld) { 
-        world.importState(myWorld);
-      }
-    }
-  });
 
   socket.on("execute command", function(data) {
     var commandObject = {};

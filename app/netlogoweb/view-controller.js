@@ -134,7 +134,6 @@
       updates = Array.isArray(modelUpdate) ? modelUpdate : [modelUpdate];
       for (k = 0, len = updates.length; k < len; k++) {
         u = updates[k];
-        
         // <!-- GBCC -->
         if (socket && activityType === "hubnet" && myUserType === "teacher") {
           socket.emit('send mirror reporter', {
@@ -425,6 +424,8 @@
     }
   }
   
+  { type: "import-drawing", sourcePath }
+  
   { type: "zoom", scale }
   
   { type: "reset-zoom" }
@@ -574,13 +575,10 @@
             _this.ctx.save();
             _this.ctx.strokeStyle = _this._rgbToCss(penColor);
             _this.ctx.lineWidth = size * _this.view.onePixel;
-	          _this.ctx.lineCap = 'round';
+            _this.ctx.lineCap = 'round';
             _this.ctx.beginPath();
             _this.ctx.moveTo(x1, y1);
             _this.ctx.lineTo(x2, y2);
-            
-                  
-                  
             _this.view.withCompositing(_this.compositingOperation(penMode), _this.ctx)(function() {
               return _this.ctx.stroke();
             });
@@ -899,18 +897,14 @@
       var patches, world;
       world = model.world;
       patches = model.patches;
-      // <!-- GBCC -->
-      if (mirroringEnabled) {
-        this.colorPatches(patches);
-      } else if (world.patchesallblack) {
+      if (world.patchesallblack) {
         this.clearPatches();
-        } else {
-        this.colorPatches(patches);        
+      } else {
+        this.colorPatches(patches);
       }
-      if (world.patcheswithlabels || mirroringEnabled) {
+      if (world.patcheswithlabels) {
         return this.labelPatches(patches);
       }
-      // <!-- END GBCC -->
     };
 
     return PatchDrawer;

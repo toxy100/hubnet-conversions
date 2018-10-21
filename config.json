@@ -11,13 +11,13 @@
     }
   },
   "galleryJs": {
-    "allowTabs": true, 
+    "allowTabs": false, 
     "allowMultipleLayers": false, 
     "allowMultipleSelections": false, 
     "allowCanvasForeverButtons": false, 
     "allowGalleryControls": false, 
-    "allowTeacherControls": false, 
-    "legacyHubnet": false, 
+    "allowTeacherControls": true, 
+    "legacyHubnet": true, 
     "secondViewString": false
   }
 }

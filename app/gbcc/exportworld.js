@@ -75,6 +75,29 @@ function createJsonReport(data, settings) {
   return JSON.stringify(reportObj);
 }
 
+function createJsonUniverse(data, settings) {
+  var reportObj = {};
+  if (data != undefined) {
+    reportObj["userData"] = data.userData;
+    reportObj["canvasOrder"] = data.canvasOrder;
+    reportObj["userStreamData"] = data.userStreamData;
+  }
+  return JSON.stringify(reportObj);
+}
+
+function createJsonMyUniverse(data, settings) {
+  var reportObj = {};
+  reportObj["userData"] = {};
+  reportObj["userStreamData"] = {};
+  if (data != undefined) {
+    if (settings.myUserId && data.userData) {
+      reportObj["userData"][settings.myUserId] = data.userData[settings.myUserId];
+      reportObj["canvasOrder"] = [settings.myUserId];
+      reportObj["userStreamData"][settings.myUserId] = data.userStreamData[settings.myUserId];
+    }
+  }
+  return JSON.stringify(reportObj);
+}
 
 function sendResponse(htmlReport,jsonReport, zip, res, filename) {
   zip.file("htmlReport.html", htmlReport);
@@ -110,8 +133,8 @@ function sendGgbResponse(xml, filename, zip, res) {
   }); }); });
 }
 
-function sendGbCCWorldResponse(worldReport, filename, zip, res) {
-  zip.file("gbccWorld.json", worldReport);
+function sendGbCCWorldResponse(worldReport, filename, zip, res, socketid) {
+  zip.file(socketid+"-gbccWorld.json", worldReport);
   zip.generateNodeStream({type:'nodebuffer',streamFiles:true})
   .pipe(fs.createWriteStream(filename))
   .on('finish', function () {
@@ -121,7 +144,7 @@ function sendGbCCWorldResponse(worldReport, filename, zip, res) {
 }
 
 module.exports = {
-  exportData: function (data, settings, res) {
+  exportGbccReport: function (data, settings, res) {
     var zip = new JSZip();
     var d = new Date();
     settings.year = d.getFullYear();
@@ -138,7 +161,6 @@ module.exports = {
         }
       }
     }
-    //zip.file("world.json", JSON.stringify(data));
     sendResponse(createHtmlReport(data, settings), createJsonReport(data, settings), zip, res, filename);
   },
   
@@ -147,8 +169,14 @@ module.exports = {
     sendGgbResponse(xml, filename, zip, res);
   },
   
-  exportGbccWorld: function (data, settings, filename, res) {
+  exportGbccUniverse: function (data, settings, filename, res, socketid) {
     var zip = new JSZip();
-    sendGbCCWorldResponse(createJsonReport(data, settings), filename, zip, res);
+    sendGbCCWorldResponse(createJsonUniverse(data, settings), filename, zip, res, socketid);
+  },
+  
+  exportGbccMyUniverse: function (data, settings, filename, res, socketid) {
+    var zip = new JSZip();
+    sendGbCCWorldResponse(createJsonMyUniverse(data, settings), filename, zip, res, socketid);
   }
+
 };

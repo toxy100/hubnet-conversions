@@ -28,9 +28,9 @@ students-own [
 
 ;;;;;;;;; Setup Procedures ;;;;;;;;
 
-;to startup
-;  hubnet-reset          ; automatically initialize hubnet architecture upon starting the model
-;end
+to startup
+  hubnet-reset          ; automatically initialize hubnet architecture upon starting the model
+end
 
 to setup
   ; clear patches and plots, instead of clear all, to preserve students' connections to the server

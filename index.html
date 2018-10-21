@@ -1,6 +1,7 @@
 
-<!-- saved from url=(0096)file:///Users/carolynremmler/Downloads/NetLogo%20Web_%20BeeSmart%20Hive%20Finding_files/web.html -->
-<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<!DOCTYPE html>
+<html>
+<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     
     <!--<base target="_parent">--><!--<base href="." target="_parent">--><base href="." target="_parent">
     <link rel="stylesheet" href="./app/netlogoweb/codemirror.css">
@@ -94,6 +95,7 @@
     <script type="text/javascript" src="app/gbcc/gbcc-client.js"></script>
     <script type="text/javascript" src="app/gbcc/gbcc-gallery.js"></script>
     <script type="text/javascript" src="app/gbcc/gbcc-interface.js"></script>
+    <script type="text/javascript" src="app/gbcc/gbcc-files.js"></script>
     <script type="text/javascript" src="app/gbcc/gbcc-events.js"></script>
     <script type="text/javascript" src="app/gbcc/html2canvas.min.js"></script>
 
@@ -194,6 +196,7 @@
     <script src="./app/netlogoweb/babybehaviorspace.js"></script>
     <script src="./app/netlogoweb/session-lite.js"></script>
     <script src="./app/netlogoweb/tortoise.js"></script>
+    <script src="./app/netlogoweb/comment.js"></script>
 
     <script type="text/javascript">
     var jsRoutes = {}; (function(_root){
@@ -211,8 +214,9 @@ _nS('controllers.Local'); _root['controllers']['Local']['standalone'] =
 
 
     <!-- This can be used to insert NetLogo code into this page -->
-    <script type="text/nlogo" id="nlogo-code" data-filename="model.nlogo">
-globals [
+
+
+<script type='text/nlogo' id='nlogo-code' data-filename='MTG 1 Equal Opportunities HubNet.nlogo'>globals [
   gini-index-reserve  ; a place to store part of gini index calculation
   lorenz-points       ; a list that stores some points to plot the Lorenz Curve
 ]
@@ -242,9 +246,9 @@ students-own [
 
 ;;;;;;;;; Setup Procedures ;;;;;;;;
 
-;to startup
-;  hubnet-reset          ; automatically initialize hubnet architecture upon starting the model
-;end
+to startup
+  ;hubnet-reset          ; automatically initialize hubnet architecture upon starting the model
+end
 
 to setup
   ; clear patches and plots, instead of clear all, to preserve students' connections to the server
@@ -507,6 +511,10 @@ end
 
 ; Copyright 2018 Uri Wilensky.
 ; See Info tab for full copyright and license.
+
+
+to client-procedure
+end
 @#$#@#$#@
 GRAPHICS-WINDOW
 214
@@ -668,6 +676,118 @@ mean [sugar] of students
 1
 1
 11
+
+BUTTON
+77
+212
+146
+245
+up
+client-procedure
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+46
+
+
+BUTTON
+77
+256
+146
+289
+down
+client-procedure
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+48
+
+
+BUTTON
+8
+256
+77
+289
+left
+client-procedure
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+46
+
+
+BUTTON
+146
+256
+215
+289
+right
+client-procedure
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+50
+
+
+MONITOR
+6
+10
+666
+59
+message
+""
+0
+1
+11
+
+MONITOR
+8
+111
+218
+160
+sugar
+""
+0
+1
+11
+
+BUTTON
+9
+307
+216
+340
+harvest
+client-procedure
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+50
+
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -1363,6 +1483,7 @@ Line -7500403 true 150 150 210 180
 @#$#@#$#@
 1
 @#$#@#$#@
+
 
 </script>
 

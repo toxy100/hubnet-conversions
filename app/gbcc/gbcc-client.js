@@ -12,6 +12,7 @@ var activityType = undefined;
 var drawPatches = true;
 var mirroringEnabled;
 var myCanvas;
+var myUserId;
   
 jQuery(document).ready(function() {
 
@@ -27,13 +28,6 @@ jQuery(document).ready(function() {
   viewOverride.observer = {};
   viewOverride.drawingEvents = {};
   var viewState = undefined;
-  /*
-  viewState.turtles = {};
-  viewState.patches = {};
-  viewState.links = {};
-  viewState.observer = {};
-  viewState.drawingEvents = {};
-  */
   socket = io();
   var myForeverButtonVar = "";
   var myMirrorVar = "";
@@ -95,6 +89,7 @@ jQuery(document).ready(function() {
   });
 
   socket.on("gbcc user enters", function(data) {
+    console.log("gbcc user enters",data);
     var uId = data.userId;
     var uType = data.userType;
     if (data.userData) {
@@ -116,20 +111,27 @@ jQuery(document).ready(function() {
   });
   
   socket.on("gbcc user exits", function(data) {
+    console.log(data);
+    if (userData[data.userId] && userData[data.userId].reserved) { 
+      userData[data.userId].reserved = data.userData.reserved;
+    }
     if (procedures.gbccOnExit) {
       session.runCode(userData[data.userId]["gbcc-exit-button-code-"+data.userId]); 
     }
   });
   
   socket.on("gbcc user message", function(data) {
+    //console.log("gbcc user message",data);
     if (procedures.gbccOnMessage) {
       var tag = data.hubnetMessageTag;
       var message = data.hubnetMessage;
       var uId = data.hubnetMessageSource;
       var uType = data.userType;
       var compileString;
+      console.log(message);
+      console.log("type of message"+typeof message);
       if (typeof message === "string") {
-        compileString = 'try { var reporterContext = false; var letVars = { }; procedures["GBCC-ON-MESSAGE"]("'+uId+'","'+uType+'","'+tag+'","'+message+'"); } catch (e) { if (e instanceof Exception.StopInterrupt) { return e; } else { throw e; } }'
+        compileString = 'try { var reporterContext = false; var letVars = { }; procedures["GBCC-ON-MESSAGE"]("'+uId+'","'+uType+'","'+tag+'",'+JSON.stringify(message)+'); } catch (e) { if (e instanceof Exception.StopInterrupt) { return e; } else { throw e; } }'
       } else {
         if ((typeof message === "boolean") || (typeof message === "number")) { 
           compileString = 'try { var reporterContext = false; var letVars = { }; procedures["GBCC-ON-MESSAGE"]("'+uId+'","'+uType+'","'+tag+'", '+message+' ); } catch (e) { if (e instanceof Exception.StopInterrupt) { return e; } else { throw e; } }'        
@@ -137,6 +139,7 @@ jQuery(document).ready(function() {
           compileString = 'try { var reporterContext = false; var letVars = { }; procedures["GBCC-ON-MESSAGE"]("'+uId+'","'+uType+'","'+tag+'", '+JSON.stringify(message)+' ); } catch (e) { if (e instanceof Exception.StopInterrupt) { return e; } else { throw e; } }'                  
         }
       }
+      console.log(compileString);
       session.runCode(compileString); 
     }
   });
@@ -148,6 +151,7 @@ jQuery(document).ready(function() {
 
   // show or hide student view or gallery
   socket.on("student accepts UI change", function(data) {
+    console.log("studnt accpts ui change "+data.type+" "+data.display);
     if (data.type === "view") {
       (data.display) ? $(".netlogo-view-container").css("display","block") : $(".netlogo-view-container").css("display","none");
     } else if (data.type === "tabs") {
@@ -174,6 +178,7 @@ jQuery(document).ready(function() {
     }
     if (data.type === "mirror") {
       mirroringEnabled = data.display;
+      mirroringEnabled ? $(".netlogo-view-container").css("display","block") : $(".netlogo-view-container").css("display","none");
       if (data.image && mirroringEnabled) {
         universe.model.drawingEvents.push({type: "import-drawing", sourcePath: data.image});
       }
@@ -200,29 +205,37 @@ jQuery(document).ready(function() {
   // students display reporters
   socket.on("display reporter", function(data) {
     if (!allowGalleryForeverButton || (allowGalleryForeverButton && !$(".netlogo-gallery-tab").hasClass("selected"))) {
-      if (data.hubnetMessageTag.includes("canvas")) {
-        Gallery.displayCanvas({message:data.hubnetMessage,source:data.hubnetMessageSource,tag:data.hubnetMessageTag,userType:data.userType});
+      var matchingMonitors = session.widgetController.widgets().filter(function(x) { 
+        return x.type === "monitor" && x.display === data.hubnetMessageTag; 
+      });
+      if (matchingMonitors.length > 0) {
+        for (var i=0; i<matchingMonitors.length; i++) {
+          matchingMonitors[i].compiledSource = data.hubnetMessage;
+          matchingMonitors[i].reporter       = function() { return data.hubnetMessage; };
+        }        }
+      else if (activityType === "hubnet") {
+        world.observer.setGlobal(data.hubnetMessageTag.toLowerCase(),data.hubnetMessage);
       } else {
-        var matchingMonitors = session.widgetController.widgets().filter(function(x) { 
-          return x.type === "monitor" && x.display === data.hubnetMessageTag; 
-        });
-        if (matchingMonitors.length > 0) {
-          for (var i=0; i<matchingMonitors.length; i++) {
-            matchingMonitors[i].compiledSource = data.hubnetMessage;
-            matchingMonitors[i].reporter       = function() { return data.hubnetMessage; };
-          }        }
-        else if (activityType === "hubnet") {
-          world.observer.setGlobal(data.hubnetMessageTag.toLowerCase(),data.hubnetMessage);
-        } else {
-          // WARNING: gbcc:restore-globals overwrites globals, may not want this feature
-          if ((world.observer.getGlobal(data.hubnetMessageTag) != undefined) &&
-            (data.hubnetMessage != undefined)) {
-            world.observer.setGlobal(data.hubnetMessageTag, data.hubnetMessage);
-          }
+        // WARNING: gbcc:restore-globals overwrites globals, may not want this feature
+        if ((world.observer.getGlobal(data.hubnetMessageTag) != undefined) &&
+          (data.hubnetMessage != undefined)) {
+          world.observer.setGlobal(data.hubnetMessageTag, data.hubnetMessage);
         }
       }
     }
   });
+  
+  socket.on("display canvas reporter", function(data) {
+    console.log("display canvas reporter");
+    if (!allowGalleryForeverButton || (allowGalleryForeverButton && !$(".netlogo-gallery-tab").hasClass("selected"))) {
+      Gallery.displayCanvas({
+        message:data.hubnetMessage,
+        source:data.hubnetMessageSource,
+        tag:data.hubnetMessageTag,
+        userType:data.userType,
+        claimed:data.claimed});
+    }
+  });  
   
   socket.on("accept user data", function(data) {
     //console.log("accept user data", data);
@@ -235,9 +248,13 @@ jQuery(document).ready(function() {
   });
   
   socket.on("accept user stream data", function(data) {
+  //  console.log("accept user stream data");
     if (!allowGalleryForeverButton || (allowGalleryForeverButton && !$(".netlogo-gallery-tab-content").hasClass("selected"))) {
       if (userStreamData[data.userId] === undefined) {
         userStreamData[data.userId] = {};
+      }
+      if (!userStreamData[data.userId][data.tag]) {
+        userStreamData[data.userId][data.tag] = [];
       }
       userStreamData[data.userId][data.tag].push(data.value);
       userData[data.userId][data.tag] = data.value;
@@ -432,6 +449,39 @@ jQuery(document).ready(function() {
     }
   });
   
+  socket.on("accept canvas override", function(data) {
+    //console.log("accept canvas override",data);
+    var hubnetMessageTag = data.hubnetMessageTag;
+    var hubnetMessage = data.hubnetMessage;
+    var adoptedUserId = hubnetMessage.adoptedUserId;
+    var originalUserId = hubnetMessage.originalUserId;
+    if (hubnetMessageTag === "adopt-canvas") {
+      if (myUserId === originalUserId) {
+        updateMyCanvas(myUserId, "false");
+        myUserId = adoptedUserId;
+        $(".myUserIdInput").val(myUserId);
+        updateMyCanvas(myUserId, "true");
+      } else {
+        $("#gallery-item-"+originalUserId).attr("claimed","false"); 
+        $("#gallery-item-"+adoptedUserId).attr("claimed","true");      
+      }
+    } 
+    else if (hubnetMessageTag === "release-canvas") {
+      if (adoptedUserId) {
+        $("#gallery-item-"+adoptedUserId).attr("claimed","false");
+      } else {
+        $("#gallery-item-"+originalUserId).attr("claimed","false");
+      }
+    }
+  });
+  
+  function updateMyCanvas(uId, state) {
+    $("#gallery-item-"+myUserId).attr("myUser",state);  
+    $("#gallery-item-"+myUserId).attr("claimed",state);      
+    (state === "true") ?$("#gallery-item-"+myUserId+" .label").addClass("selected") : $("#gallery-item-"+myUserId+" .label").removeClass("selected");
+  }
+
+  
   socket.on("accept all user data", function(data) {
     if (!allowGalleryForeverButton || (allowGalleryForeverButton && !$(".netlogo-gallery-tab-content").hasClass("selected"))) {
       userData = data.userData;
@@ -469,7 +519,18 @@ jQuery(document).ready(function() {
       }
     }
   }
-
+  
+  socket.on("trigger file import", function(data) {
+    if (data.filetype === "ggb") {
+      Graph.importGgbDeleteFile(data.filename);
+    } else if (data.filetype === "universe") {
+      GbccFileManager.importOurDataFile(data.filename);
+    } else if (data.filetype === "my-universe") {
+      
+      GbccFileManager.importMyDataFile(data.filename);
+    }
+  });
+    
   socket.on("execute command", function(data) {
     var commandObject = {};
     commandObject.messageSource = data.hubnetMessageSource;

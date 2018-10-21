@@ -236,22 +236,22 @@ students-own [
   sugar           ; the amount of sugar this turtle has
   metabolism      ; the amount of sugar that each turtles loses each tick
   vision          ; the distance that this turtle can see in the horizontal and vertical directions
-  vision-points   ; the points that this turtle can see in relative to it's current position (based on vision)
+  vision-points   ; the points that this turtle can see in relative to its current position (based on vision)
   next-task  ; the next task a turtle will run. Can be either harvest, invest, go-to-school, or chill.
   state      ; the current state a turtle is in. Used to switch between tasks. Can be either harvesting, investing, schooling, or chilling.
   my-timer   ; a countdown timer to disable movements when in a certain state, such as at school
-  has-moved? ; a marker for constraining students' clicks to one click per tick. Rapid multiple clicks from one
+  has-moved? ; a marker for constraining students clicks to one click per tick. Rapid multiple clicks from one
              ; student can slow the model by keep only processing the incoming HubNet messages
 ]
 
 ;;;;;;;;; Setup Procedures ;;;;;;;;
 
-to startup
-  hubnet-reset          ; automatically initialize hubnet architecture upon starting the model
-end
+;to startup
+;  hubnet-reset          ; automatically initialize hubnet architecture upon starting the model
+;end
 
 to setup
-  ; clear patches and plots, instead of clear all, to preserve students' connections to the server
+  ; clear patches and plots, instead of clear all, to preserve students connections to the server
   clear-patches
   clear-all-plots
 
@@ -318,7 +318,7 @@ to go
         set state "broke"
       ]
       run next-task
-      ; send resulting information for this round (this tick) to clients' interface to display
+      ; send resulting information for this round (this tick) to clients interface to display
       send-info-to-clients
     ]
   ]
@@ -393,7 +393,7 @@ to execute-command [ command ]
 end
 
 to send-info-to-clients ; student procedure
-  ; set the client view to follow the agent so it's always at the
+  ; set the client view to follow the agent so its always at the
   ; center of the view (showing 7 patches in each direction around the agent).
   hubnet-send-follow user-id self 7
   hubnet-send user-id "sugar" sugar

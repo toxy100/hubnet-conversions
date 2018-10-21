@@ -1,23 +1,23 @@
 {
   "interfaceJs": {
     "loginComponents": {
-      "componentRange": [25,25]
+      "componentRange": [19,19]
     },
     "studentComponents": {
-      "componentRange": [19,24]
+      "componentRange": [0,18]
     },
     "teacherComponents": {
       "componentRange": [0,18]
     }
   },
   "galleryJs": {
-    "allowTabs": false, 
+    "allowTabs": true, 
     "allowMultipleLayers": false, 
     "allowMultipleSelections": false, 
     "allowCanvasForeverButtons": false, 
     "allowGalleryControls": false, 
-    "allowTeacherControls": true, 
-    "legacyHubnet": true, 
+    "allowTeacherControls": false, 
+    "legacyHubnet": false, 
     "secondViewString": false
   }
 }

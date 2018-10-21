@@ -73,8 +73,8 @@ to setup
 
   ;; variables for bugs
   set-default-shape bugs "bug"
-  set bugs-size 1.0
-  set bugs-stride 0.2
+  set bugs-size 1
+  set bugs-stride 1
   set bugs-reproduce-energy 100
   set bugs-energy-from-food 4  ;; set to 4 by default in this model.
                                ;; In other Bug Hunt Models (such as Bug Hunt Consumers), bug-energy-from-food has a default of 4, but is slider adjustable.
@@ -106,7 +106,7 @@ end
 to setup-a-new-bugs-for-a-new-player [p-user-id]
    set hidden? false
    set color (magenta - 1)
-   set size 1.4  ;; easier to see
+   set size 2  ;; easier to see
    set label-color blue
 
    set energy 10 * bugs-energy-from-food

@@ -4,10 +4,10 @@
       "componentRange": [19,19]
     },
     "studentComponents": {
-      "componentRange": [0,18]
+      "componentRange": [12,18]
     },
     "teacherComponents": {
-      "componentRange": [0,18]
+      "componentRange": [0,11]
     }
   },
   "galleryJs": {

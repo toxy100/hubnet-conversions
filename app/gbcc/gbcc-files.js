@@ -19,7 +19,11 @@ GbccFileManager = (function() {
   }
   
   function importOurData() {
-    importGbcc("universe");
+    if (myUserType === "teacher") {
+      importGbcc("universe");
+    } else {
+      alert("You must have the role of teacher to gbcc:import-our-data.")
+    }
   }
   
   function importGbcc(contenttype) {
@@ -31,7 +35,7 @@ GbccFileManager = (function() {
         var file = files[0];
         formData.append(socket.id, file, file.name);
         $.ajax({
-           url: '/importgbccform?filetype='+contenttype,
+           url: '/importgbccform?filetype='+contenttype+'&myroom='+$(".roomNameInput").val(),
            type: 'POST',
            data: formData,
            processData: false,
